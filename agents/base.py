@@ -111,8 +111,16 @@ def _python_type_to_json_schema(t: Any) -> dict:
         return {"type": "array"}
     if origin is dict:
         return {"type": "object"}
-    # Union (including X | None) — collapse to the first non-None type
-    if origin is typing.Union or str(origin) == "types.UnionType":
+    # Union (including X | None) — collapse to the first non-None type.
+    # typing.Union covers Optional[X]; types.UnionType covers X | Y (Python 3.10+).
+    import sys
+
+    _is_union = origin is typing.Union
+    if not _is_union and sys.version_info >= (3, 10):
+        import types as _types
+
+        _is_union = isinstance(t, _types.UnionType)
+    if _is_union:
         non_none = [a for a in args if a is not type(None)]
         if non_none:
             return _python_type_to_json_schema(non_none[0])
