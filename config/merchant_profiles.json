@@ -1,0 +1,30 @@
+{
+  "_doc": "Stub /.well-known/ucp profiles. MerchantGateway falls back to these when real discovery fails. Replace entries with merchant-published profiles as UCP adoption grows.",
+  "profiles": {
+    "ucp-reference.local": {
+      "merchant_domain": "ucp-reference.local",
+      "capabilities": [
+        {"namespace": "dev.ucp.shopping.checkout", "version": "2025-01-15", "spec_url": "https://ucp.dev/spec/checkout"},
+        {"namespace": "dev.ucp.orders.management", "version": "2025-01-15", "spec_url": "https://ucp.dev/spec/orders"},
+        {"namespace": "dev.ucp.payments.token_exchange", "version": "2025-01-15", "spec_url": "https://ucp.dev/spec/payments"}
+      ],
+      "services": [
+        {"type": "rest", "spec_url": "https://ucp.dev/spec/openapi.yaml", "base_url": "http://localhost:8080"}
+      ],
+      "payment_handlers": [
+        {"id": "stripe", "name": "Stripe", "spec_url": "https://stripe.com/docs/api"}
+      ],
+      "signing_keys": []
+    },
+    "demo-shop.myshopify.com": {
+      "merchant_domain": "demo-shop.myshopify.com",
+      "capabilities": [],
+      "services": [],
+      "payment_handlers": [
+        {"id": "stripe", "name": "Stripe", "spec_url": "https://stripe.com/docs/api"}
+      ],
+      "signing_keys": [],
+      "_note": "No UCP support; gateway falls back to ShopifyMCPAdapter"
+    }
+  }
+}

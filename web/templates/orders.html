@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Orders · Agentic Commerce{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-4">Orders</h1>
+{% if flash %}<p class="mb-3 text-red-700 text-sm">{{ flash }}</p>{% endif %}
+
+{% if not orders %}
+<p class="text-slate-500 italic">No orders yet. Ask the agent or click "Add to cart" to get started.</p>
+{% else %}
+<table class="w-full bg-white border border-slate-200 rounded-lg overflow-hidden text-sm">
+  <thead class="bg-slate-50 text-left">
+    <tr>
+      <th class="px-3 py-2 w-12"></th>
+      <th class="px-3 py-2">Order</th>
+      <th class="px-3 py-2">Merchant</th>
+      <th class="px-3 py-2">Total</th>
+      <th class="px-3 py-2">Status</th>
+      <th class="px-3 py-2">Placed</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for o in orders %}
+    <tr class="border-t hover:bg-slate-50 transition">
+      <td class="px-3 py-2">
+        {# First-item thumbnail for quick visual identification #}
+        {% if o._first_item_image %}
+        <img src="{{ o._first_item_image }}" alt="Order item"
+             class="w-10 h-10 rounded-lg object-cover"
+             loading="lazy"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div class="w-10 h-10 rounded-lg bg-slate-100 hidden
+                    items-center justify-center">
+          {% with bag_class="w-7 h-7" %}{% include "_carto_bag.html" %}{% endwith %}
+        </div>
+        {% else %}
+        <div class="w-10 h-10 rounded-lg bg-slate-100
+                    flex items-center justify-center">
+          {% with bag_class="w-7 h-7" %}{% include "_carto_bag.html" %}{% endwith %}
+        </div>
+        {% endif %}
+      </td>
+      <td class="px-3 py-2 font-mono text-xs">
+        <a href="/orders/{{ o.order_id }}" class="text-cyan-700 hover:underline">{{ o.order_id }}</a>
+      </td>
+      <td class="px-3 py-2">{{ o.merchant_domain }}</td>
+      <td class="px-3 py-2">${{ o.amount }}</td>
+      <td class="px-3 py-2">{{ o.status }}</td>
+      <td class="px-3 py-2 text-xs">{{ o.created_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

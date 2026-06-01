@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Agentic Commerce{% endblock %}
+
+{% block content %}
+{# pt-24 = 6rem ≈ 1 inch — shifts the entire Explore page down uniformly
+   so hero, chips, brand row, and featured row all maintain their relative
+   spacing while the page content starts lower on screen. #}
+<div class="pt-24">
+  {# Explore (home) is the discovery surface. The hero's chat input
+     posts to /chat and navigates the browser there. The conversation
+     itself lives on /chat. #}
+  {% include "_hero.html" %}
+
+  {# Discovery surface: chips + brand row + featured row #}
+  {% include "_discovery.html" %}
+</div>
+{% endblock %}

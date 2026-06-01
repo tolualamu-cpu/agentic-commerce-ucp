@@ -1,0 +1,86 @@
+{# Inline product card for the chat interface.
+   Rendered server-side by POST /chat/products-fragment and injected into
+   the chat log when a `products` SSE event arrives.
+
+   Interactions (wired by _attachCardHandlers in _chat_sse.html):
+     - Click "Add to cart" / "In cart ✕"  → toggle cart state via fetch
+     - Double-click card body              → navigate to product detail
+     - Ctrl/Cmd+click product name link    → open detail in new tab
+#}
+<article
+  class="chat-product-card bg-white border border-slate-200 rounded-xl
+         flex gap-3 p-3 hover:shadow-md hover:border-slate-300 transition
+         cursor-default select-none"
+  data-merchant="{{ product.merchant_domain }}"
+  data-product-id="{{ product.product_id }}"
+  data-in-cart="{{ 'true' if in_cart else 'false' }}"
+  data-product-name="{{ product.name | e }}"
+  data-product-url="/product/{{ product.merchant_domain }}/{{ product.product_id }}">
+
+  {# Thumbnail #}
+  <div class="flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden bg-slate-100
+              flex items-center justify-center">
+    {% if product.images %}
+    <img src="{{ product.images[0] }}"
+         alt="{{ product.name }}"
+         class="w-full h-full object-cover"
+         loading="lazy"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <span style="display:none" class="w-full h-full flex items-center justify-center">
+      {% with bag_class="w-12 h-12" %}{% include "_carto_bag.html" %}{% endwith %}
+    </span>
+    {% else %}
+    {% with bag_class="w-12 h-12" %}{% include "_carto_bag.html" %}{% endwith %}
+    {% endif %}
+  </div>
+
+  {# Details #}
+  <div class="flex flex-col flex-1 min-w-0 justify-between">
+    <div>
+      {# Name — Ctrl/Cmd+click opens in new tab natively #}
+      <a href="/product/{{ product.merchant_domain }}/{{ product.product_id }}"
+         target="_blank"
+         rel="noopener"
+         class="font-semibold text-sm text-slate-900 hover:underline line-clamp-1
+                block"
+         onclick="event.stopPropagation()">
+        {{ product.name }}
+      </a>
+      {% if product.description %}
+      <p class="text-xs text-slate-500 mt-0.5 line-clamp-2 leading-snug">
+        {{ product.description }}
+      </p>
+      {% endif %}
+    </div>
+
+    <div class="flex items-center justify-between mt-1.5">
+      <div>
+        <span class="text-sm font-semibold text-slate-900">${{ product.price }}</span>
+        {% if product.rating %}
+        <span class="text-xs text-slate-400 ml-1.5">
+          ★ {{ product.rating }}{% if product.review_count %} ({{ product.review_count }}){% endif %}
+        </span>
+        {% endif %}
+        {% if not product.in_stock %}
+        <span class="text-xs text-red-600 font-medium ml-1.5">Out of stock</span>
+        {% endif %}
+      </div>
+
+      {% if product.in_stock %}
+      <button
+        class="cart-toggle-btn text-xs px-2.5 py-1.5 rounded-lg font-medium
+               transition active:scale-95 whitespace-nowrap ml-2
+               {% if in_cart %}
+               bg-emerald-50 text-emerald-700 border border-emerald-200
+               hover:bg-red-50 hover:text-red-700 hover:border-red-200
+               {% else %}
+               bg-slate-900 text-white hover:bg-slate-700
+               {% endif %}"
+        onclick="event.stopPropagation()"
+        type="button">
+        {% if in_cart %}In cart ✕{% else %}Add to cart{% endif %}
+      </button>
+      {% endif %}
+    </div>
+  </div>
+</article>

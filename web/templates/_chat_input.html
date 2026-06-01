@@ -1,0 +1,43 @@
+{# Chat input form. Sits BELOW the conversation log in document flow.
+
+   Default behaviour: POST /chat (HTMX) and let the SSE handler stream
+   the reply into the visible #chat-log — no navigation. Used by the
+   active /chat state.
+
+   When included with ``reload_after=True`` (empty /chat, where the
+   chat-log is hidden and SSE bubbles would be invisible), the form
+   navigates to /chat after a successful POST so the page re-renders
+   in the active state with the new turn visible.
+
+   The form id is `chat-form` and the input id is `chat-input` — same
+   names the SSE handler and suggestion-chip helper expect. So chips
+   automatically inherit whichever submit behaviour is active.
+#}
+{% set _reload_after = (reload_after | default(False)) %}
+{% set _placeholder = (input_placeholder | default("Reply or refine…")) %}
+{% set _no_centering = (no_centering | default(False)) %}
+<form id="chat-form"
+      hx-post="/chat" hx-swap="none"
+      action="/chat" method="post"
+      class="{{ 'w-full' if _no_centering else 'mx-auto max-w-2xl w-full' }}"
+      {% if _reload_after %}
+      hx-on::after-request="if (event.detail.successful) window.location.href = '/chat';"
+      {% endif %}>
+  <div class="relative rounded-2xl shadow-sm ring-1 ring-slate-200
+              bg-white focus-within:ring-2 focus-within:ring-cyan-500
+              transition">
+    <input id="chat-input" type="text" name="message" required
+           autocomplete="off"
+           placeholder="{{ _placeholder }}"
+           class="w-full px-5 py-4 pr-14 rounded-2xl bg-transparent
+                  text-base text-slate-900 placeholder-slate-400
+                  focus:outline-none" />
+    <button type="submit" aria-label="Send"
+            class="absolute right-2 top-1/2 -translate-y-1/2
+                   w-10 h-10 rounded-full bg-slate-900 text-white
+                   flex items-center justify-center
+                   hover:bg-slate-800 active:scale-95 transition">
+      ↑
+    </button>
+  </div>
+</form>

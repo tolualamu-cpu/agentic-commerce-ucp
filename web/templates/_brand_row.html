@@ -1,0 +1,24 @@
+{# Horizontal scroll of merchant tiles. Clicking a tile goes to
+   /search?merchant=<domain> (existing route). Hidden in conversation mode.
+#}
+<section class="discovery-only max-w-7xl mx-auto px-4 mt-12">
+  <div class="mb-4">
+    <h2 class="text-base font-semibold text-slate-900">Shop by store</h2>
+  </div>
+  <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
+    {% for m in merchants %}
+    <a href="/search?merchant={{ m }}"
+       class="snap-start shrink-0 w-48 px-4 py-6 rounded-xl bg-white
+              border border-slate-200 hover:border-slate-400 hover:shadow-sm
+              transition text-center">
+      <div class="flex justify-center mb-2">
+        {% with icon_class="w-9 h-9 text-slate-700" %}{% include "_store_icon.html" %}{% endwith %}
+      </div>
+      <div class="text-sm font-medium text-slate-900 truncate">
+        {{ m.split('.')[0].replace('-', ' ').title() }}
+      </div>
+      <div class="text-[10px] text-slate-400 mt-1 truncate">{{ m }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</section>

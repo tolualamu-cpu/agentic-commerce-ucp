@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Cart · Agentic Commerce{% endblock %}
+
+{% block content %}
+{# Full cart page. Wraps the existing _cart_drawer.html partial inside
+   the site shell (base.html provides the header with Explore / Chat /
+   Orders / Mandate / Profile / Audit / cart icon).
+
+   Drawer mutations (qty change, remove, clear) still POST and receive
+   the bare partial as the swap target — see view_cart's HX-Request
+   branch in web/routers/cart.py. #}
+<div class="max-w-3xl mx-auto px-4 py-8">
+  {# The whole cart body is wrapped in #cart-content so it can be
+     swapped in-place when a purchase initiated from "Review purchase"
+     completes (see the ac:sse "done" listener below). data-item-count
+     lets the listener detect whether the cart shrank (purchase went
+     through) vs. stayed the same (cancelled / question). #}
+  <div id="cart-content" data-item-count="{{ cart.item_count or 0 }}">
+    <header class="mb-5 flex items-baseline justify-between">
+      <h1 class="text-2xl font-semibold text-slate-900">Your cart</h1>
+      {% if cart.item_count and cart.item_count > 0 %}
+      <p class="text-sm text-slate-500">
+        {{ cart.item_count }} item{{ '' if cart.item_count == 1 else 's' }}
+        · subtotal ${{ cart.subtotal }}
+      </p>
+      {% endif %}
+    </header>
+
+    {% include "_cart_drawer.html" %}
+
+    {% if not cart.lines %}
+    <div class="mt-6 text-center text-sm text-slate-500">
+      <p class="mb-3">Nothing in your cart yet.</p>
+      <a href="/" class="inline-block px-4 py-2 rounded-full
+                         bg-slate-900 text-white text-sm
+                         hover:bg-slate-800 transition">
+        Browse products
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Live refresh on purchase completion ───────────────────────────
+   "Review purchase" POSTs to /chat with hx-swap="none", so the cart
+   page never updates on its own — the orchestrator runs (often behind
+   the confirmation gate modal) and, on success, purges the bought
+   items from the basket server-side. Without this listener the user
+   stares at an unchanged cart and can't tell the purchase completed.
+
+   _toast.html (in base.html) owns the single SSE connection and
+   re-broadcasts every non-cart_update frame as an `ac:sse` DOM event.
+   A "done" frame fires whenever an orchestrator run finishes — on the
+   cart page the only trigger for that is "Review purchase". When it
+   arrives we re-fetch the cart and swap #cart-content in place so the
+   now-empty cart (and Browse CTA) render, then surface a toast. #}
+<script>
+(function () {
+  function readCount() {
+    var el = document.getElementById("cart-content");
+    return el ? (parseInt(el.getAttribute("data-item-count") || "0", 10) || 0) : 0;
+  }
+
+  document.addEventListener("ac:sse", function (e) {
+    var evt = e.detail || {};
+    if (evt.type !== "done") return;
+
+    var before = readCount();
+    // Plain fetch (no HX-Request header) → /cart returns the full page;
+    // we extract the fresh #cart-content and swap it in.
+    fetch("/cart", { credentials: "same-origin" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, "text/html");
+        var fresh = doc.getElementById("cart-content");
+        var current = document.getElementById("cart-content");
+        if (!fresh || !current) return;
+        current.replaceWith(fresh);
+        // Re-bind HTMX on the freshly inserted forms (qty/remove/clear);
+        // DOMParser nodes aren't processed automatically.
+        if (window.htmx) window.htmx.process(fresh);
+        var after = parseInt(fresh.getAttribute("data-item-count") || "0", 10) || 0;
+        if (before > 0 && after < before && window.__toast) {
+          window.__toast(
+            after === 0
+              ? "Purchase complete. Your cart is now empty. See it under Orders."
+              : "Purchase complete. Remaining items are still in your cart.",
+            "info"
+          );
+        }
+      })
+      .catch(function () { /* best-effort; never block the page */ });
+  });
+})();
+</script>
+{% endblock %}

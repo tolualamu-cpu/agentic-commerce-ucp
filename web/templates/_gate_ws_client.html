@@ -1,0 +1,42 @@
+{# Shared /gate/ws client. ONE WebSocket per page, broadcast via
+   document events ("gate.open", "picker.open") so the gate modal AND
+   picker overlay can both subscribe without racing for the same
+   outbox events.
+
+   Must be included BEFORE `_gate_modal.html` and `_picker_overlay.html`
+   in base.html so `window.__gateWS` exists when those scripts run.
+#}
+<script>
+(function () {
+  if (typeof WebSocket === "undefined") return;
+  let ws = null;
+  let backoff = 1000;
+  function connect() {
+    const proto = (location.protocol === "https:") ? "wss" : "ws";
+    ws = new WebSocket(proto + "://" + location.host + "/gate/ws");
+    window.__gateWS = ws;
+    ws.onopen = () => { backoff = 1000; };
+    ws.onmessage = (e) => {
+      let evt;
+      try { evt = JSON.parse(e.data); } catch { return; }
+      // Re-emit as a DOM event so all listeners can react to a single
+      // WS message without contending over a shared receive method.
+      document.dispatchEvent(new CustomEvent("ac:gate", { detail: evt }));
+    };
+    ws.onclose = () => {
+      // Reconnect with backoff, capped at 30s
+      setTimeout(connect, Math.min(backoff, 30000));
+      backoff = Math.min(backoff * 2, 30000);
+    };
+    ws.onerror = () => { try { ws.close(); } catch {} };
+  }
+  connect();
+
+  // Helper used by modal + picker to send replies upstream
+  window.__gateSend = function (payload) {
+    if (window.__gateWS && window.__gateWS.readyState === 1) {
+      window.__gateWS.send(JSON.stringify(payload));
+    }
+  };
+})();
+</script>

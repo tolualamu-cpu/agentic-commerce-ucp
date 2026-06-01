@@ -1,0 +1,17 @@
+{# Server-side product card row rendered inside _chat_log.html.
+   Used to re-render product cards that were originally injected via
+   the `products` SSE event — survives page reloads because the card
+   data is stored in SessionState.product_card_sets.
+
+   Variables expected:
+     products_list  — list of product dicts (same shape as chat fragment)
+     request        — FastAPI request (needed for _cart_drawer context)
+#}
+<div class="text-left my-2 space-y-2 max-w-[90%]">
+  {% for product in products_list %}
+  {% set merchant = product.merchant_domain if product.merchant_domain is defined else product.get('merchant_domain', '') %}
+  {% set pid = product.product_id if product.product_id is defined else product.get('product_id', '') %}
+  {% set in_cart = false %}
+  {% include '_chat_product_card.html' %}
+  {% endfor %}
+</div>

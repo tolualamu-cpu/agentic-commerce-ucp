@@ -1,0 +1,77 @@
+{# Numbered-list picker overlay. Opened by the orchestrator's search
+   sub-flow via a `picker.open` event over /gate/ws. Clicking an item
+   sends `{decision:"question", text:"N"}` so the existing numeric
+   resolver in the orchestrator handles selection — the same code path
+   typing "1" into the chat would take.
+#}
+<div id="picker-overlay"
+     class="fixed inset-0 z-40 hidden bg-slate-900/60 backdrop-blur-sm
+            flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
+    <header class="mb-3 flex items-center justify-between">
+      <h2 class="text-lg font-semibold">Pick an item</h2>
+      <button id="picker-close"
+              class="text-xs text-slate-500 hover:underline">Cancel</button>
+    </header>
+    <p id="picker-prompt" class="text-sm text-slate-600 mb-3"></p>
+    <ol id="picker-list" class="space-y-2"></ol>
+  </div>
+</div>
+
+<script>
+(function () {
+  const overlay = document.getElementById("picker-overlay");
+  const list = document.getElementById("picker-list");
+  const prompt = document.getElementById("picker-prompt");
+  const closeBtn = document.getElementById("picker-close");
+  if (!overlay) return;
+
+  function close() { overlay.classList.add("hidden"); }
+  closeBtn.addEventListener("click", () => {
+    sendReply({ decision: "cancel" });
+    close();
+  });
+
+  // Subscribe to the shared event bus (one WS per page)
+  document.addEventListener("ac:gate", (e) => {
+    const evt = e.detail || {};
+    if (evt.type === "picker.open") openPicker(evt);
+  });
+
+  function openPicker(evt) {
+    prompt.textContent = evt.prompt || "Choose one of the options below:";
+    list.innerHTML = "";
+    (evt.options || []).forEach((opt, idx) => {
+      const n = idx + 1;
+      const li = document.createElement("li");
+      li.className = "flex items-center gap-2";
+      const btn = document.createElement("button");
+      btn.className = "flex-1 text-left px-3 py-2 rounded border " +
+                       "border-slate-200 hover:bg-slate-50 text-sm";
+      btn.innerHTML = "<span class='font-semibold mr-2'>" + n + ".</span>" +
+                       escapeHtml(opt.label || opt.name || "");
+      if (opt.price) {
+        btn.innerHTML += " <span class='text-xs text-slate-500'>· $" +
+                          escapeHtml(opt.price) + "</span>";
+      }
+      btn.addEventListener("click", () => {
+        sendReply({ decision: "question", text: String(n) });
+        close();
+      });
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+    overlay.classList.remove("hidden");
+  }
+
+  function sendReply(payload) {
+    if (typeof window.__gateSend === "function") window.__gateSend(payload);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[c]);
+  }
+})();
+</script>

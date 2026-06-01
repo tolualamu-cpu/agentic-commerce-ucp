@@ -1,0 +1,59 @@
+{# Hero on the Explore (home) page. Big centered tagline + chat input.
+
+   Submitting POSTs to /chat (HTMX, hx-swap="none") to start the agent,
+   then navigates the browser to /chat via hx-on::after-request. The
+   /chat page picks up the just-pushed conversation from
+   session.conversation and streams the agent's reply via SSE.
+
+   The chat input keeps id="chat-input" + the form keeps id="chat-form"
+   so suggestion chips (which submit this same form) keep working.
+#}
+{# min-h on the h1 pre-reserves the full 2-line height before the typewriter
+   starts, preventing layout shift as text wraps from 1 → 2 lines.
+   text-3xl  2 lines ≈ 2 × 1.875rem × 1.25 = 4.69rem  → min-h-[5rem]
+   text-5xl  2 lines ≈ 2 × 3rem    × 1.25 = 7.5rem   → md:min-h-[7.5rem]
+   The 1-inch page offset lives on the wrapper in home.html (not here). #}
+<section id="hero" class="text-center pt-10 pb-8 px-4">
+  <h1 id="hero-headline"
+      data-typewriter="Carto finds, compares, and buys from your favorite brands"
+      class="text-3xl md:text-5xl font-semibold text-slate-900
+             max-w-3xl mx-auto leading-tight
+             min-h-[5rem] md:min-h-[7.5rem]"></h1>
+  <script>
+  (function () {
+    var el = document.getElementById("hero-headline");
+    var text = el.getAttribute("data-typewriter") || "";
+    var i = 0;
+    function tick() {
+      if (i <= text.length) { el.textContent = text.slice(0, i++); setTimeout(tick, 38); }
+    }
+    tick();
+  })();
+  </script>
+
+  <form id="chat-form"
+        hx-post="/chat" hx-swap="none"
+        action="/chat" method="post"
+        class="mt-6 max-w-2xl mx-auto"
+        hx-on::after-request="if (event.detail.successful) window.location.href = '/chat';">
+    <div class="relative rounded-2xl shadow-sm ring-1 ring-slate-200
+                bg-white focus-within:ring-2 focus-within:ring-cyan-500
+                transition">
+      {# type="search" preserves Phase 7a's contract that home has a
+         search input. The agent IS the search. #}
+      <input id="chat-input" type="search" name="message" required
+             autocomplete="off"
+             placeholder="What are you shopping for?"
+             class="w-full px-5 py-4 pr-14 rounded-2xl bg-transparent
+                    text-base text-slate-900 placeholder-slate-400
+                    focus:outline-none" />
+      <button type="submit" aria-label="Send"
+              class="absolute right-2 top-1/2 -translate-y-1/2
+                     w-10 h-10 rounded-full bg-slate-900 text-white
+                     flex items-center justify-center
+                     hover:bg-slate-800 active:scale-95 transition">
+        ↑
+      </button>
+    </div>
+  </form>
+</section>

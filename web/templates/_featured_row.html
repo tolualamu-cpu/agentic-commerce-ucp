@@ -1,0 +1,59 @@
+{# Horizontal scroll of product cards. Same data shape as the old grid
+   on home; just rendered as a single row instead of a grid.
+   Hidden in conversation mode. #}
+<section class="discovery-only max-w-7xl mx-auto px-4 mt-10">
+  <h2 class="text-base font-semibold text-slate-900 mb-4">Featured today</h2>
+
+  {% if products %}
+  {# relative wrapper so the arrow buttons can be absolute-positioned
+     in the bottom-right corner above the scroll track. #}
+  <div class="relative">
+    <div id="featured-scroll"
+         class="flex gap-4 overflow-x-auto pb-12 -mx-1 px-1 snap-x">
+      {% for product in products %}
+      <div class="snap-start shrink-0 w-64">
+        {% include "_product_card.html" %}
+      </div>
+      {% endfor %}
+    </div>
+
+    {# Clickable arrow controls — bottom-right of the carousel.
+       pb-12 on the scroll track above reserves the vertical space. #}
+    <div class="absolute bottom-1 right-1 flex gap-2">
+      <button id="featured-prev" aria-label="Scroll left"
+              class="w-9 h-9 rounded-full bg-white border border-slate-200
+                     text-slate-600 hover:bg-slate-900 hover:text-white
+                     hover:border-slate-900 shadow-sm flex items-center
+                     justify-center text-lg transition active:scale-90">
+        &#8249;
+      </button>
+      <button id="featured-next" aria-label="Scroll right"
+              class="w-9 h-9 rounded-full bg-white border border-slate-200
+                     text-slate-600 hover:bg-slate-900 hover:text-white
+                     hover:border-slate-900 shadow-sm flex items-center
+                     justify-center text-lg transition active:scale-90">
+        &#8250;
+      </button>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-sm text-slate-500">No products available right now.</p>
+  {% endif %}
+
+  <script>
+  (function () {
+    var track = document.getElementById("featured-scroll");
+    var prev  = document.getElementById("featured-prev");
+    var next  = document.getElementById("featured-next");
+    if (!track || !prev || !next) return;
+    // Scroll ~3 card-widths at a time (card 256px + gap 16px = 272px)
+    var STEP = 272 * 3;
+    prev.addEventListener("click", function () {
+      track.scrollBy({ left: -STEP, behavior: "smooth" });
+    });
+    next.addEventListener("click", function () {
+      track.scrollBy({ left: STEP, behavior: "smooth" });
+    });
+  })();
+  </script>
+</section>

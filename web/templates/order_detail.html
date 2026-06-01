@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Order {{ order.order_id }} · Agentic Commerce{% endblock %}
+{% block content %}
+<a href="/orders" class="text-sm text-slate-500 hover:underline">← All orders</a>
+<h1 class="text-2xl font-semibold my-3">Order {{ order.order_id }}</h1>
+
+<div class="bg-white rounded-lg border border-slate-200 p-4 mb-4 text-sm">
+  <p><span class="text-slate-500">Merchant:</span> {{ order.merchant_domain }}</p>
+  <p><span class="text-slate-500">Total:</span> ${{ order.amount }}</p>
+  <p><span class="text-slate-500">Status:</span> {{ order.status }}</p>
+  <p><span class="text-slate-500">Placed:</span> {{ order.created_at }}</p>
+</div>
+
+{% if order['items'] %}
+<h2 class="font-medium mb-2">Items</h2>
+<ul class="bg-white rounded-lg border border-slate-200 divide-y divide-slate-200 text-sm">
+  {% for item in order['items'] %}
+  <li class="flex items-center gap-3 px-4 py-3">
+    {# Product thumbnail — images field added by _enrich_products_with_images() in account.py #}
+    {% set img_url = item.images[0] if item.images is defined and item.images else
+                     (item.get('images', [None])[0] if item.get('images') else '') %}
+    {% if img_url %}
+    <img src="{{ img_url }}" alt="{{ item.name }}"
+         class="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+         loading="lazy"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div class="w-14 h-14 rounded-lg bg-slate-100 hidden
+                flex-shrink-0 items-center justify-center">
+      {% with bag_class="w-10 h-10" %}{% include "_carto_bag.html" %}{% endwith %}
+    </div>
+    {% else %}
+    <div class="w-14 h-14 rounded-lg bg-slate-100 flex-shrink-0
+                flex items-center justify-center">
+      {% with bag_class="w-10 h-10" %}{% include "_carto_bag.html" %}{% endwith %}
+    </div>
+    {% endif %}
+    {# Item details #}
+    <div class="flex-1 min-w-0">
+      <p class="font-medium text-slate-900 truncate">{{ item.name }}</p>
+      <p class="text-xs text-slate-500 mt-0.5">Qty: {{ item.quantity }}</p>
+    </div>
+    <span class="font-medium text-slate-900 flex-shrink-0">
+      ${{ item.line_total or item.price }}
+    </span>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if tracking %}
+<h2 class="font-medium mt-4 mb-2">Tracking</h2>
+<div class="bg-white rounded-lg border border-slate-200 p-3 text-sm">
+  {% for k, v in tracking.items() %}
+  <p><span class="text-slate-500">{{ k }}:</span> {{ v }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+<form action="/orders/{{ order.order_id }}/return" method="post" class="mt-4"
+      onsubmit="return confirm('Initiate a return for this order?')">
+  <input type="hidden" name="reason" value="user_initiated_from_web" />
+  <button type="submit"
+          class="px-4 py-2 rounded border border-slate-300 text-sm hover:bg-slate-50">
+    Initiate return
+  </button>
+</form>
+{% endblock %}

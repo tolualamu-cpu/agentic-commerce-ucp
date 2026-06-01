@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Carto{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet">
+  <style>
+    /* Body / UI text → Avenir Next (Apple-bundled; graceful fallback elsewhere) */
+    body { font-family: "Avenir Next", "Avenir", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    /* Prominent headings (hero headlines + each page's main <h1> title) → Georgia */
+    h1 { font-family: Georgia, "Times New Roman", Times, serif; }
+    /* Hide scrollbar on horizontal carousels but keep scroll behaviour */
+    .overflow-x-auto::-webkit-scrollbar { height: 6px; }
+    .overflow-x-auto::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+
+  {# ── Header (logo + Explore/Chat tabs + account/cart) ────────── #}
+  <header class="border-b bg-white/80 backdrop-blur sticky top-0 z-30">
+    <div class="relative max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+      {# Centred tagline — absolutely positioned so it doesn't affect flex layout #}
+      <p class="absolute left-1/2 -translate-x-1/2 text-[10px] uppercase
+                tracking-widest text-slate-400 hidden sm:block
+                pointer-events-none select-none">
+        Your AI Personal Shopper
+      </p>
+
+      <div class="flex items-center gap-6">
+        <a href="/" class="flex items-center gap-2 font-semibold text-lg
+                          whitespace-nowrap text-slate-900">
+          <img src="/static/artifacts/Carto%20logo%20fully%20transparent.png"
+               alt="Carto" class="w-8 h-8 object-contain" />
+          <span style="font-family: 'Pacifico', cursive;">Carto</span>
+        </a>
+        {# Primary tabs — highlight the active surface. Pages without
+           a request.url.path attr (rare) fall through to no highlight. #}
+        {% set _path = (request.url.path if request else "/") %}
+        <nav class="flex items-center gap-1 text-sm">
+          <a href="/"
+             class="px-3 py-1.5 rounded-full transition
+                    {% if _path == '/' %}bg-slate-900 text-white
+                    {% else %}text-slate-600 hover:text-slate-900{% endif %}">
+            Explore
+          </a>
+          <a href="/chat"
+             class="px-3 py-1.5 rounded-full transition
+                    {% if _path == '/chat' %}bg-slate-900 text-white
+                    {% else %}text-slate-600 hover:text-slate-900{% endif %}">
+            Chat
+          </a>
+        </nav>
+      </div>
+      <nav class="flex items-center gap-5 text-sm text-slate-600">
+        <a href="/orders" class="hover:text-slate-900 hidden sm:inline">Orders</a>
+        <a href="/mandate" class="hover:text-slate-900 hidden sm:inline">Mandate</a>
+        <a href="/profile" class="hover:text-slate-900 hidden md:inline">Profile</a>
+        <a href="/audit" class="hover:text-slate-900 hidden md:inline">Audit</a>
+        <a href="/cart" class="hover:text-slate-900 relative" title="Cart"
+           id="cart-link">
+          🛒
+          {% set _count = cart_item_count(request) %}
+          {% if _count > 0 %}
+          <span id="cart-badge"
+                class="absolute -top-1 -right-2 bg-red-600 text-white
+                       text-[10px] leading-none rounded-full
+                       min-w-[1.1rem] h-[1.1rem] px-1 flex items-center
+                       justify-center font-bold">
+            {{ _count }}
+          </span>
+          {% endif %}
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  {# ── Daily Carto spend sub-bar — below the sticky nav, all pages ── #}
+  {% set _mi = mandate_info(request) %}
+  {% if _mi.get('mandate') %}
+  <div class="bg-white border-b border-slate-100 py-1.5 px-4">
+    <p class="max-w-7xl mx-auto text-right text-xs text-slate-500">
+      You've spent <strong>${{ _mi.spent_today | money }}</strong> of your
+      <strong>${{ _mi.mandate.daily_cap | money }}</strong> daily Carto agentic limit
+    </p>
+  </div>
+  {% endif %}
+
+  {# ── Main ─────────────────────────────────────────────────────── #}
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  {# ── Single shared /gate/ws client (must come BEFORE modal/picker) #}
+  {% include "_gate_ws_client.html" %}
+
+  {# ── Gate modal (hidden until orchestrator triggers a gate) ──── #}
+  {% include "_gate_modal.html" %}
+
+  {# ── Picker overlay (search sub-flow, numeric resolver) ──────── #}
+  {% include "_picker_overlay.html" %}
+
+  {# ── Toast notifications stack ───────────────────────────────── #}
+  {% include "_toast.html" %}
+
+  {# ── Footer ───────────────────────────────────────────────────── #}
+  <footer class="border-t bg-white mt-16 py-6 text-center text-xs text-slate-400">
+    Product simulation with demo storefronts · No real purchases are made
+  </footer>
+
+</body>
+</html>

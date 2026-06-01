@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Chat · Carto{% endblock %}
+
+{% block content %}
+{# Two visual states share the same DOM:
+
+   Empty (no messages): centered hero + input + chips.
+   Active: bubbles render top-down via _chat_log.html, AND the input is
+   `position: sticky; bottom: 0` so it stays glued to the viewport
+   bottom whenever the user scrolls up. The input still occupies its
+   normal slot in the document flow below the last bubble — sticky
+   just keeps it visible without breaking out of the layout.
+#}
+{% set _history = chat_history(request) %}
+{% set _has_messages = (_history | length) > 0 %}
+
+<div class="min-h-[calc(100vh-4rem)] flex flex-col max-w-3xl mx-auto
+            px-4 w-full">
+
+  {% if _has_messages %}
+  {# Active conversation: bubbles on top, input sticky to viewport bottom. #}
+  <div class="flex items-center justify-between mt-4 mb-3 text-xs
+              text-slate-400">
+    <span class="flex items-center gap-2">
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+      Shopping assistant
+    </span>
+    {# Status element kept but hidden so the SSE handler can still set
+       "thinking…"/"idle"/"error" state without rendering visible clutter. #}
+    <span id="chat-status" class="hidden">idle</span>
+  </div>
+
+  {# Log container. flex-1 + pb-4 so when content is short, empty
+     space sits ABOVE the input (sticky input rides at the bottom of
+     the viewport). When content overflows, the page scrolls and the
+     input remains pinned to the viewport bottom. #}
+  <div id="chat-log"
+       class="flex-1 flex flex-col gap-3 text-sm pb-4 pt-2"
+       aria-live="polite">
+    {% include "_chat_log.html" %}
+  </div>
+
+  {# Sticky-bottom input. The Restart button is absolutely positioned
+     to the left of the centered max-w-2xl input container so its
+     distance from the chat box is fixed regardless of flex behaviour. #}
+  <div id="chat-input-section"
+       class="sticky bottom-0 bg-slate-50/95 backdrop-blur
+              pt-3 pb-4 -mx-4 px-4 border-t border-slate-200">
+    <div class="relative max-w-2xl mx-auto">
+      {% include "_chat_input.html" %}
+      {# Reset is a real POST form (303-redirects back to /chat). The
+         button is type="button" so it opens our own in-app confirm
+         dialog instead of the browser-native confirm() (which shows an
+         unbranded "127.0.0.1 says" chrome). The dialog's OK submits
+         this form. #}
+      <form id="chat-reset-form" action="/chat/reset" method="post"
+            class="absolute -left-24 top-1/2 -translate-y-1/2">
+        <button type="button" aria-label="Restart conversation"
+                title="Start a new conversation"
+                onclick="window.__openRestartConfirm && window.__openRestartConfirm()"
+                class="flex flex-col items-center gap-0.5 px-2 py-1.5
+                       text-slate-400 hover:text-slate-700 transition
+                       active:scale-90 rounded-lg hover:bg-slate-100">
+          <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 3-6.7"/>
+            <path d="M3 4v5h5"/>
+          </svg>
+          <span class="text-[10px] uppercase tracking-wide font-medium leading-none">
+            Restart
+          </span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {# In-app restart confirmation dialog (replaces native confirm()).
+     Hidden until the Restart button opens it; OK submits the reset
+     form, Cancel/backdrop/Escape dismiss it. #}
+  <div id="restart-confirm" role="dialog" aria-modal="true"
+       aria-labelledby="restart-confirm-title"
+       class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm
+              flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl">
+      <h2 id="restart-confirm-title" class="text-lg font-semibold mb-1">
+        Restart conversation?
+      </h2>
+      <p class="text-sm text-slate-500 mb-5">
+        Carto preserves your cart and order history.
+      </p>
+      <div class="flex gap-2 justify-end">
+        <button type="button" id="restart-confirm-cancel"
+                class="px-4 py-2 rounded border border-slate-300 text-sm
+                       hover:bg-slate-50">
+          Cancel
+        </button>
+        <button type="button" id="restart-confirm-ok"
+                class="px-4 py-2 rounded bg-slate-900 text-white text-sm
+                       font-semibold hover:bg-slate-800">
+          OK
+        </button>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var modal = document.getElementById("restart-confirm");
+    var form = document.getElementById("chat-reset-form");
+    if (!modal || !form) return;
+    var cancelBtn = document.getElementById("restart-confirm-cancel");
+    var okBtn = document.getElementById("restart-confirm-ok");
+
+    function open() {
+      modal.classList.remove("hidden");
+      okBtn.focus();
+    }
+    function close() { modal.classList.add("hidden"); }
+
+    window.__openRestartConfirm = open;
+    cancelBtn.addEventListener("click", close);
+    okBtn.addEventListener("click", function () {
+      close();
+      form.submit();
+    });
+    // Backdrop click (outside the panel) dismisses.
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) close();
+    });
+    // Escape dismisses while open.
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+    });
+  })();
+  </script>
+
+  {% else %}
+  {# Empty state: hero-style centered prompt + chips. Not sticky — the
+     input IS the hero. #}
+  <div id="chat-log" class="hidden" aria-hidden="true"></div>
+  <span id="chat-status" class="hidden">idle</span>
+
+  <div class="flex-1 flex flex-col justify-center py-12">
+    <div class="text-center mb-6">
+      <h1 id="chat-headline"
+          data-typewriter="What are you shopping for?"
+          class="text-3xl md:text-4xl font-semibold text-slate-900
+                 max-w-2xl mx-auto leading-tight"></h1>
+      <script>
+      (function () {
+        var el = document.getElementById("chat-headline");
+        var text = el.getAttribute("data-typewriter") || "";
+        var i = 0;
+        function tick() {
+          if (i <= text.length) { el.textContent = text.slice(0, i++); setTimeout(tick, 38); }
+        }
+        tick();
+      })();
+      </script>
+    </div>
+
+    <div id="chat-input-section">
+      {# Empty state needs to reload to /chat after a successful POST
+         so the page re-renders in the active state with the new turn
+         visible. Without reload_after, the SSE-streamed bubbles would
+         land in a hidden #chat-log. #}
+      {% with reload_after=True, input_placeholder="Find it with Carto..." %}
+        {% include "_chat_input.html" %}
+      {% endwith %}
+    </div>
+
+    {# Same suggestion chips as Explore so the user can kick off a
+       thread from here too. Chips call form.requestSubmit() so they
+       inherit the form's reload-after-request behaviour automatically. #}
+    <div class="mt-6">
+      {% include "_suggestion_chips.html" %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{# SSE wiring AFTER the form so getElementById finds the form/log. #}
+{% include "_chat_sse.html" %}
+{% endblock %}

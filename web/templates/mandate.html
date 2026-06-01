@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Mandate · Agentic Commerce{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-4">Spending mandate</h1>
+
+{% if mandate.error %}
+<p class="text-red-600">{{ mandate.error }}</p>
+{% else %}
+<div class="bg-white rounded-lg border border-slate-200 p-4 grid grid-cols-2 gap-3 text-sm">
+  <div><div class="text-slate-500 text-xs">Status</div>
+    <div class="font-medium">{{ mandate.status }}</div></div>
+  <div><div class="text-slate-500 text-xs">Currency</div>
+    <div class="font-medium">{{ mandate.currency }}</div></div>
+  <div><div class="text-slate-500 text-xs">Per-transaction cap</div>
+    <div class="font-medium">${{ mandate.per_transaction_cap }}</div></div>
+  <div><div class="text-slate-500 text-xs">Expiry</div>
+    <div class="font-medium text-xs">{{ mandate.expiry }}</div></div>
+  <div><div class="text-slate-500 text-xs">Daily cap</div>
+    <div class="font-medium">${{ mandate.daily_cap }}</div></div>
+  <div><div class="text-slate-500 text-xs">Spent today</div>
+    <div class="font-medium">${{ mandate.spent_today }}
+      <span class="text-xs text-slate-500">
+        (${{ mandate.daily_headroom }} left)
+      </span></div></div>
+  <div><div class="text-slate-500 text-xs">Monthly cap</div>
+    <div class="font-medium">${{ mandate.monthly_cap }}</div></div>
+  <div><div class="text-slate-500 text-xs">Spent this month</div>
+    <div class="font-medium">${{ mandate.spent_this_month }}
+      <span class="text-xs text-slate-500">
+        (${{ mandate.monthly_headroom }} left)
+      </span></div></div>
+</div>
+
+{% if mandate.status == "active" %}
+<form action="/mandate/revoke" method="post" class="mt-4"
+      onsubmit="return confirm('Revoke the active mandate? Future purchases will be blocked until you create a new one.')">
+  <button type="submit"
+          class="px-4 py-2 rounded bg-red-600 text-white text-sm
+                 hover:bg-red-700 font-medium">
+    Revoke mandate
+  </button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

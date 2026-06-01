@@ -1,0 +1,66 @@
+{# Conversation log. Renders server-side bubbles from chat_history().
+
+   Used inside chat.html. The container is `id="chat-log"` so the SSE
+   handler (in _chat_sse.html) knows where to append live bubbles.
+
+   When history is empty this renders nothing — the empty-state hero
+   in chat.html shows instead.
+
+   Product card persistence: after each assistant turn we check whether
+   SessionState.product_card_sets has a set linked to that turn's index.
+   If so, the cards are re-rendered server-side so they survive page reloads.
+#}
+{% set _history = chat_history(request) %}
+{% set _card_sets = product_card_sets(request) %}
+{# Build a dict: turn_count → products_list for O(1) lookup below #}
+{% set _cards_by_turn = {} %}
+{% for cs in _card_sets %}
+  {% if _cards_by_turn.update({cs.turn_count: cs.products}) %}{% endif %}
+{% endfor %}
+
+{% for turn in _history %}
+  {% if turn.role == 'user' %}
+    {% if not turn.text.startswith('[via UI click]') %}
+    <div class="text-right">
+      <div class="inline-block bg-cyan-100 text-slate-900
+                  px-4 py-2 rounded-2xl rounded-tr-sm max-w-[80%]">
+        {{ turn.text }}
+      </div>
+    </div>
+    {% else %}
+    {# [via UI click] messages: render as styled cart-action confirmation
+       instead of the grey italic arrow notation. Strip the prefix and the
+       ISO timestamp so only the human-readable action text is shown. #}
+    {% set _raw = turn.text | replace('[via UI click] ', '') %}
+    {% set _action = _raw.split(' (at ')[0] | capitalize %}
+    <div class="text-left my-1">
+      <div class="inline-flex items-center gap-2
+                  bg-slate-50 border border-slate-100
+                  px-3 py-2 rounded-xl text-sm text-slate-600 max-w-[85%]">
+        <span class="flex-shrink-0">{% with bag_class="w-5 h-5" %}{% include "_carto_bag.html" %}{% endwith %}</span>
+        <span>{{ _action }}</span>
+      </div>
+    </div>
+    {% endif %}
+  {% else %}
+    {# Re-render product cards linked to this assistant turn BEFORE the
+       text bubble. The live SSE stream inserts cards first (the `products`
+       placeholder is appended ahead of the `text` summary in
+       _chat_sse.html), so the server-rendered reload must place them in
+       the same order — otherwise the summary text flips from below the
+       cards (live) to above them (reload) when navigating back to /chat.
+       turn_count is the 1-indexed position of this turn in the conversation
+       list (set by chat_history() in web/app.py). #}
+    {% if turn.turn_count is defined and turn.turn_count in _cards_by_turn %}
+    {% set products_list = _cards_by_turn[turn.turn_count] %}
+    {% include '_product_cards_row.html' %}
+    {% endif %}
+    <div class="text-left">
+      <div class="inline-block bg-white border border-slate-200
+                  px-4 py-2 rounded-2xl rounded-tl-sm
+                  whitespace-pre-wrap max-w-[90%] shadow-sm">
+        {{ turn.text }}
+      </div>
+    </div>
+  {% endif %}
+{% endfor %}

@@ -1,0 +1,10 @@
+{# Reusable Carto shopping-bag image. Replaces the generic 🛍️ emoji
+   everywhere a product/order image is missing. Decorative — aria-hidden
+   and empty alt so screen readers don't announce a redundant "bag".
+
+   Usage:
+     {% with bag_class="w-12 h-12" %}{% include "_carto_bag.html" %}{% endwith %}
+   bag_class defaults to w-8 h-8 when not provided. #}
+<img src="/static/artifacts/Carto%20Shopping%20bag%20with%20logo.png"
+     alt="" aria-hidden="true"
+     class="{{ bag_class | default('w-8 h-8') }} object-contain" />

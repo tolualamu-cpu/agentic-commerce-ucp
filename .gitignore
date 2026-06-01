@@ -1,0 +1,49 @@
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Claude Code local config (contains machine-specific settings, not for sharing)
+.claude/settings.local.json
+
+# TinyDB runtime data
+data/
+*.tinydb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+~$*
+
+# pptx generation artefacts
+*.pdf
+slide-*.jpg
+unpacked/

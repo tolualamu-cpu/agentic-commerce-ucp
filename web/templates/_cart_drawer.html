@@ -1,0 +1,96 @@
+{# Cart drawer partial. Rendered standalone (after HTMX swap) or
+   included as an out-of-band fragment on add-to-cart responses.
+   `cart` is a dict from _cart_summary(); `flash` is an optional
+   short message to surface above the line items.
+#}
+<section id="cart-drawer" class="bg-white rounded-lg border border-slate-200 p-4">
+  <header class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold">🛒 Cart
+      <span class="text-sm text-slate-500">
+        ({{ cart.item_count }} item{{ '' if cart.item_count == 1 else 's' }})
+      </span>
+    </h2>
+    {% if cart.lines %}
+    <form hx-post="/cart/clear" hx-target="#cart-drawer" hx-swap="outerHTML"
+          action="/cart/clear" method="post">
+      <button type="submit"
+              class="text-xs text-red-600 hover:underline">Clear</button>
+    </form>
+    {% endif %}
+  </header>
+
+  {% if flash %}
+  <div class="mb-2 px-2 py-1 text-xs bg-emerald-50 text-emerald-800 rounded">
+    {{ flash }}
+  </div>
+  {% endif %}
+
+  {% if not cart.lines %}
+  <p class="text-sm text-slate-500 italic">
+    Your cart is empty. Add items from the grid or ask the agent.
+  </p>
+  {% else %}
+  <ul class="divide-y divide-slate-200">
+    {% for line in cart.lines %}
+    <li class="py-2 flex items-center gap-3">
+      {# Product thumbnail #}
+      {% if line.image_url %}
+      <img src="{{ line.image_url }}" alt="{{ line.name }}"
+           class="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+           loading="lazy"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="w-12 h-12 rounded-lg bg-slate-100 flex-shrink-0
+                  items-center justify-center hidden">
+        {% with bag_class="w-10 h-10" %}{% include "_carto_bag.html" %}{% endwith %}
+      </div>
+      {% else %}
+      <div class="w-12 h-12 rounded-lg bg-slate-100 flex-shrink-0
+                  flex items-center justify-center">
+        {% with bag_class="w-10 h-10" %}{% include "_carto_bag.html" %}{% endwith %}
+      </div>
+      {% endif %}
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium truncate">{{ line.name }}</div>
+        <div class="text-xs text-slate-500">
+          ${{ line.price }} × {{ line.quantity }}
+          = ${{ line.line_total }}
+        </div>
+      </div>
+      <form hx-post="/cart/quantity/{{ line.merchant_domain }}/{{ line.product_id }}"
+            hx-target="#cart-drawer" hx-swap="outerHTML"
+            action="/cart/quantity/{{ line.merchant_domain }}/{{ line.product_id }}"
+            method="post" class="flex items-center gap-1">
+        <input type="number" name="quantity"
+               value="{{ line.quantity }}" min="0"
+               class="w-14 px-1 py-0.5 text-xs border rounded" />
+        <button type="submit"
+                class="text-xs text-slate-700 hover:underline">↻</button>
+      </form>
+      <form hx-post="/cart/remove/{{ line.merchant_domain }}/{{ line.product_id }}"
+            hx-target="#cart-drawer" hx-swap="outerHTML"
+            action="/cart/remove/{{ line.merchant_domain }}/{{ line.product_id }}"
+            method="post">
+        <button type="submit" aria-label="Remove"
+                class="text-xs text-red-600 hover:underline">✕</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <div class="mt-3 flex items-baseline justify-between font-medium">
+    <span>Subtotal</span>
+    <span>${{ cart.subtotal }}</span>
+  </div>
+
+  <form hx-post="/chat" hx-swap="none" action="/chat" method="post"
+        class="mt-3">
+    <input type="hidden" name="message"
+           value="Please buy everything in my cart now." />
+    <button type="submit"
+            class="w-full px-3 py-2 bg-emerald-600 text-white rounded
+                   text-sm font-medium hover:bg-emerald-700">
+      Review purchase
+    </button>
+  </form>
+  {% endif %}
+</section>

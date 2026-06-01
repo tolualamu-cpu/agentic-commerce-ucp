@@ -1,0 +1,89 @@
+{# Toast stack + cart badge + the ONE SSE connection per page.
+
+   Phase 8f refactor: _toast.html (included by base.html on every page)
+   now owns the EventSource('/chat/stream') connection. It handles
+   cart_update events directly (so the header badge stays in sync on
+   ANY page) and re-broadcasts every other SSE frame as a DOM
+   `ac:sse` CustomEvent so page-specific scripts (e.g. _chat_sse.html
+   on /chat, _gate_modal.html on every page) can react without each
+   opening their own EventSource (which would split events across
+   multiple queue consumers).
+#}
+<div id="toast-stack"
+     class="fixed top-20 right-4 z-50 space-y-2 max-w-sm"></div>
+
+<script>
+(function () {
+  const stack = document.getElementById("toast-stack");
+  if (!stack) return;
+
+  // ── Toast helper ────────────────────────────────────────────────
+  window.__toast = function (message, kind) {
+    kind = kind || "info";  // "info" | "warn" | "error"
+    const div = document.createElement("div");
+    const tone = (kind === "error") ? "bg-red-50 border-red-200 text-red-800"
+              : (kind === "warn") ? "bg-amber-50 border-amber-200 text-amber-800"
+              : "bg-slate-50 border-slate-200 text-slate-800";
+    div.className = "border rounded shadow px-3 py-2 text-sm " + tone +
+                     " cursor-pointer transition-opacity";
+    div.textContent = message;
+    div.addEventListener("click", () => div.remove());
+    stack.appendChild(div);
+    setTimeout(() => {
+      div.style.opacity = "0";
+      setTimeout(() => div.remove(), 400);
+    }, 6000);
+  };
+
+  // ── Cart badge updaters ─────────────────────────────────────────
+  // __bumpCart: optimistic increment (used by Add-to-Cart click
+  //             handlers on product cards).
+  // __setCartBadge: absolute set (used by the SSE cart_update path).
+  // Both share the underlying badge-render code.
+  function _renderBadge(count) {
+    const link = document.getElementById("cart-link");
+    if (!link) return;
+    let badge = document.getElementById("cart-badge");
+    if (count <= 0) {
+      if (badge) badge.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.id = "cart-badge";
+      badge.className = "absolute -top-1 -right-2 bg-red-600 text-white " +
+        "text-[10px] leading-none rounded-full min-w-[1.1rem] h-[1.1rem] " +
+        "px-1 flex items-center justify-center font-bold transition";
+      link.appendChild(badge);
+    }
+    badge.textContent = String(count);
+    badge.style.transform = "scale(1.4)";
+    setTimeout(() => { badge.style.transform = "scale(1)"; }, 150);
+  }
+  window.__setCartBadge = function (count) {
+    _renderBadge(typeof count === "number" && count >= 0 ? count : 0);
+  };
+  window.__bumpCart = function (delta) {
+    delta = delta || 1;
+    const badge = document.getElementById("cart-badge");
+    const current = badge ? (parseInt(badge.textContent || "0", 10) || 0) : 0;
+    _renderBadge(Math.max(0, current + delta));
+  };
+
+  // ── Single SSE connection per page ──────────────────────────────
+  if (typeof EventSource === "undefined") return;
+  const src = new EventSource("/chat/stream");
+  src.onmessage = (e) => {
+    let evt;
+    try { evt = JSON.parse(e.data); } catch { return; }
+    if (evt && evt.type === "cart_update") {
+      const c = (evt.data || {}).count;
+      if (typeof c === "number") window.__setCartBadge(c);
+      return;
+    }
+    // Re-broadcast everything else for page-specific handlers (the
+    // chat log on /chat, the gate modal's auto-close on done, etc.).
+    document.dispatchEvent(new CustomEvent("ac:sse", { detail: evt }));
+  };
+})();
+</script>

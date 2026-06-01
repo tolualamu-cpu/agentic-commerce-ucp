@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}
+  {%- if merchant_name -%}{{ merchant_name }}
+  {%- elif query -%}Results for "{{ query }}"
+  {%- else -%}Explore{%- endif -%}
+  · Agentic Commerce
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+
+<section class="mb-6">
+  <h1 class="text-2xl font-semibold">
+    {% if merchant_name %}{{ merchant_name }}
+    {% elif query %}Results for "{{ query }}"
+    {% else %}Explore
+    {% endif %}
+  </h1>
+</section>
+
+{% if products %}
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+  {% for product in products %}
+    {% include "_product_card.html" %}
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-white rounded-lg border border-slate-200 p-8 text-center">
+  <p class="text-slate-600">
+    {% if query %}No products matched "{{ query }}" at our configured merchants.
+    {% else %}No products found.{% endif %}
+  </p>
+  <p class="text-sm text-slate-500 mt-2">
+    Try a different keyword, or
+    <a href="/" class="text-cyan-600 hover:underline">browse the catalogue</a>.
+  </p>
+</div>
+{% endif %}
+
+</div>{# /container #}
+{% endblock %}

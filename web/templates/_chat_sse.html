@@ -1,0 +1,325 @@
+{# SSE wiring for the chat page. Lives in chat.html only — not on
+   home.html or other pages. Appends bubbles to #chat-log and handles
+   the dedup edge case where the page arrives from Explore with a
+   server-rendered user bubble that the queued "user" event would
+   otherwise duplicate.
+
+   Phase 8f: this script no longer opens its own EventSource. The
+   single per-page connection is owned by _toast.html, which
+   re-broadcasts each non-cart_update frame as an `ac:sse`
+   CustomEvent on the document. We subscribe to that DOM event.
+   Reason: two EventSources to /chat/stream would split events
+   across two queue consumers (only one would get each event).
+
+   Scroll behaviour (Phase 8c):
+     - Sticky to bottom: only auto-scrolls when the user is already
+       within NEAR_BOTTOM_PX of the bottom. If they've scrolled up to
+       re-read, streamed text deltas leave them alone.
+     - Coalesced via requestAnimationFrame: at most one scroll per
+       frame regardless of how many SSE deltas land.
+     - Force-scroll on user submit: when the user adds their OWN
+       bubble (just hit Send), bypass the near-bottom check.
+#}
+<script>
+(function () {
+  const log = document.getElementById("chat-log");
+  const status = document.getElementById("chat-status");
+  const form = document.getElementById("chat-form");
+  if (!log || !form) return;
+
+  // ── Dedup state ──────────────────────────────────────────────────
+  // Two race conditions to guard against when the chat page is reached
+  // by navigating from Explore (or after empty-state reload):
+  //
+  //   PARTIAL: only the user turn is in the rendered history (the
+  //     orchestrator is still running). SSE will push {type:"user"}
+  //     for that already-rendered turn, then stream the agent reply.
+  //     Skip just the queued "user" event.
+  //
+  //   FULL: both [user, assistant] are in the rendered history (the
+  //     orchestrator finished before the browser navigated). SSE will
+  //     redeliver the WHOLE turn (user + text deltas + done) for an
+  //     exchange that's already on screen. Skip everything until the
+  //     next "done" event.
+  //
+  // Without the FULL guard, fast cached-result responses produce
+  // duplicate agent bubbles (see Phase 8d plan §2a).
+  const _serverHistory = {{ chat_history(request) | tojson }};
+  const _lastServerUser = (function () {
+    for (let i = _serverHistory.length - 1; i >= 0; i--) {
+      if (_serverHistory[i].role === "user"
+          && !_serverHistory[i].text.startsWith("[via UI click]")
+          && !_serverHistory[i].text.startsWith("[at confirmation gate]")) {
+        return _serverHistory[i].text;
+      }
+    }
+    return null;
+  })();
+  // FULL-turn case: last two turns are a complete user/agent pair.
+  // chat_history() forwards whatever role the conversation contains —
+  // BaseAgent stores "assistant", the legacy CLI sometimes stored
+  // "agent". Accept either.
+  function _isAgentRole(r) { return r === "agent" || r === "assistant"; }
+  const _serverEndsWithAssistantReply = (function () {
+    if (_serverHistory.length < 2) return false;
+    const last = _serverHistory[_serverHistory.length - 1];
+    const prev = _serverHistory[_serverHistory.length - 2];
+    return _isAgentRole(last.role)
+        && prev.role === "user"
+        && !prev.text.startsWith("[via UI click]");
+  })();
+  let _pendingUserDedup = (_lastServerUser !== null)
+                          && !_serverEndsWithAssistantReply;
+  let _skipUntilDone = _serverEndsWithAssistantReply;
+
+  // No timeout needed — see the event dispatcher below for how
+  // _skipUntilDone is cleared without a bandaid timer.
+
+  let currentAgentBubble = null;
+
+  // ── Chat product card interactions ────────────────────────────────
+  // Called after injecting product cards fetched from /chat/products-fragment.
+  // Wires add/remove cart toggle and double-click navigation on each card.
+  function _attachCardHandlers(root) {
+    root.querySelectorAll(".chat-product-card").forEach(function (card) {
+      const merchant   = card.dataset.merchant;
+      const productId  = card.dataset.productId;
+      const productUrl = card.dataset.productUrl;
+      let inCart       = card.dataset.inCart === "true";
+
+      // Double-click → product detail page
+      card.addEventListener("dblclick", function (e) {
+        if (e.target.tagName === "A" || e.target.tagName === "BUTTON") return;
+        window.location.href = productUrl;
+      });
+
+      const btn = card.querySelector(".cart-toggle-btn");
+      if (!btn) return;
+
+      btn.addEventListener("click", function () {
+        const action = inCart ? "remove" : "add";
+        const url    = "/cart/" + action + "/" + merchant + "/" + productId;
+        fetch(url, {method: "POST", headers: {"HX-Request": "true"}})
+          .then(function (r) {
+            if (!r.ok) return;
+            inCart = !inCart;
+            card.dataset.inCart = inCart ? "true" : "false";
+            if (inCart) {
+              btn.textContent = "In cart ✕";
+              btn.className = btn.className
+                .replace("bg-slate-900 text-white hover:bg-slate-700",
+                         "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200");
+            } else {
+              btn.textContent = "Add to cart";
+              btn.className = btn.className
+                .replace("bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200",
+                         "bg-slate-900 text-white hover:bg-slate-700");
+            }
+            // Badge and toast are handled by the server-pushed `click` SSE
+            // event and `cart_update` SSE event — no duplicate calls here.
+          });
+      });
+    });
+  }
+
+  // ── Sticky-scroll helpers ───────────────────────────────────────
+  const NEAR_BOTTOM_PX = 120;
+  let _scrollScheduled = false;
+
+  function isUserNearBottom() {
+    const doc = document.documentElement;
+    const distance = doc.scrollHeight - (doc.scrollTop + doc.clientHeight);
+    return distance < NEAR_BOTTOM_PX;
+  }
+
+  function scheduleScroll(opts) {
+    // opts.force=true: scroll regardless of position (for user-submit case)
+    const force = !!(opts && opts.force);
+    if (_scrollScheduled) return;
+    _scrollScheduled = true;
+    window.requestAnimationFrame(() => {
+      _scrollScheduled = false;
+      if (!force && !isUserNearBottom()) return;
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: "smooth",
+      });
+    });
+  }
+
+  function append(role, text, opts) {
+    const wrap = document.createElement("div");
+    wrap.className = role === "user" ? "text-right" : "text-left";
+    const bubble = document.createElement("div");
+    bubble.className = role === "user"
+      ? "inline-block bg-cyan-100 text-slate-900 px-4 py-2 " +
+        "rounded-2xl rounded-tr-sm max-w-[80%]"
+      : "inline-block bg-white border border-slate-200 px-4 py-2 " +
+        "rounded-2xl rounded-tl-sm whitespace-pre-wrap max-w-[90%] shadow-sm";
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    log.appendChild(wrap);
+    scheduleScroll(opts);
+    return bubble;
+  }
+
+  function appendTool(name) {
+    const div = document.createElement("div");
+    div.className = "text-xs text-slate-400 italic text-center";
+    div.textContent = "↳ " + name + "…";
+    log.appendChild(div);
+    scheduleScroll();
+  }
+
+  // On page load: if history is non-empty, jump straight to the bottom
+  // (no smooth-scroll) so the chat opens with the latest exchange
+  // visible. Intentional: this is a navigation moment, not a streaming
+  // moment, so an instant jump is correct.
+  // Also wire any product cards that were server-rendered by _chat_log.html
+  // (they have no handlers until _attachCardHandlers is called on them).
+  if (_serverHistory.length > 0) {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    _attachCardHandlers(log);
+  }
+
+  // ── SSE event dispatcher ────────────────────────────────────────
+  // We subscribe to the `ac:sse` DOM CustomEvent that _toast.html
+  // re-broadcasts after consuming each frame from its single
+  // EventSource('/chat/stream') connection. `cart_update` events
+  // are handled by _toast.html directly (badge); everything else
+  // arrives here for chat-log rendering.
+  document.addEventListener("ac:sse", (e) => {
+    const evt = e.detail || {};
+    const t = evt.type;
+    const d = evt.data || {};
+    // FULL-turn dedup: the page loaded with a complete [user, agent]
+    // exchange already in the server HTML. We need to skip the SSE
+    // replay of that run — but NOT block future runs forever.
+    //
+    // Two ways _skipUntilDone legitimately ends:
+    //   1. "done" arrives   → the old run was still in-flight and its
+    //      events just landed on this stream. Dedup complete.
+    //   2. A "user" event arrives whose text differs from _lastServerUser
+    //      → this is a NEW submission, not an old-run echo. The "done"
+    //      from the previous run was already consumed by the old page's
+    //      EventSource and will never arrive here; waiting for it would
+    //      silence every subsequent message permanently. Clear the flag
+    //      and render the new user bubble immediately.
+    if (_skipUntilDone) {
+      if (t === "done") {
+        _skipUntilDone = false;
+        if (status) status.textContent = "idle";
+      } else if (t === "user" && d.text !== _lastServerUser) {
+        // New run detected — stop skipping and render this user bubble.
+        _skipUntilDone = false;
+        append("user", d.text, { force: true });
+        currentAgentBubble = null;
+        if (status) status.textContent = "thinking…";
+      }
+      return;
+    }
+    if (t === "user") {
+      // Dedup: skip the first user event matching the last server bubble
+      if (_pendingUserDedup && d.text === _lastServerUser) {
+        _pendingUserDedup = false;
+        if (status) status.textContent = "thinking…";
+        return;
+      }
+      // Force-scroll: the user just submitted, they always want to
+      // see their own message
+      append("user", d.text, { force: true });
+      currentAgentBubble = null;
+      if (status) status.textContent = "thinking…";
+    } else if (t === "text") {
+      if (!currentAgentBubble) currentAgentBubble = append("agent", "");
+      currentAgentBubble.textContent += d.delta || "";
+      // Sticky-scroll: only pulls down if user is near bottom. rAF
+      // coalesces multi-delta bursts to one scroll per frame.
+      scheduleScroll();
+    } else if (t === "tool_start") {
+      appendTool(d.name || "tool");
+    } else if (t === "done") {
+      if (status) status.textContent = "idle";
+      currentAgentBubble = null;
+    } else if (t === "bubble_end") {
+      // Close the current agent bubble so the next on_text starts a fresh one.
+      // Fired after each gate Q&A response to keep intermediate replies and
+      // the final purchase confirmation in separate chat bubbles.
+      currentAgentBubble = null;
+    } else if (t === "error") {
+      append("agent", "⚠ " + (d.message || "Something went wrong."));
+      if (status) status.textContent = "error";
+      if (typeof window.__toast === "function") {
+        window.__toast(d.message || "Something went wrong.", "error");
+      }
+    } else if (t === "products") {
+      const items = d.products || [];
+      if (!items.length) return;
+      // Close any open streaming text bubble before inserting cards.
+      currentAgentBubble = null;
+      // Insert a placeholder synchronously — this reserves a position in the
+      // DOM BEFORE the `text` SSE event (which arrives immediately after and
+      // appends synchronously). When the fetch completes, we fill the
+      // placeholder in-place so cards appear above the text summary.
+      const placeholder = document.createElement("div");
+      placeholder.className = "text-left my-2 space-y-2 max-w-[90%]";
+      log.appendChild(placeholder);
+      scheduleScroll();
+      fetch("/chat/products-fragment", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({products: items}),
+      })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        if (html.trim()) {
+          placeholder.innerHTML = html;
+          _attachCardHandlers(placeholder);
+        } else {
+          placeholder.remove();
+        }
+        scheduleScroll();
+      });
+    } else if (t === "click") {
+      // Render a styled cart-action confirmation in the chat log instead of
+      // just a toast. Uses the structured fields added to the click event.
+      const action = d.action || "";
+      const label = action === "added"   ? "Added to cart"
+                  : action === "removed" ? "Removed from cart"
+                  : action === "updated" ? "Cart updated"
+                  : "Cart action";
+      const name = d.name || d.note || "";
+      const imgHtml = d.image_url
+        ? `<img src="${d.image_url}" alt="${name}"
+               class="w-8 h-8 rounded object-cover flex-shrink-0"
+               onerror="this.style.display='none'">`
+        : `<img src="/static/artifacts/Carto%20Shopping%20bag%20with%20logo.png"
+                 alt="" aria-hidden="true"
+                 class="w-6 h-6 object-contain flex-shrink-0">`;
+      const wrap = document.createElement("div");
+      wrap.className = "text-left my-1";
+      wrap.innerHTML =
+        `<div class="inline-flex items-center gap-2 bg-slate-50 border
+                     border-slate-100 px-3 py-2 rounded-xl text-sm
+                     text-slate-600 max-w-[85%]">
+           ${imgHtml}
+           <span><strong>${label}:</strong> ${name}</span>
+         </div>`;
+      log.appendChild(wrap);
+      scheduleScroll();
+      // Also show a brief toast for immediate feedback
+      if (typeof window.__toast === "function") {
+        window.__toast(label + ": " + name, "info");
+      }
+    }
+  });
+
+  // Clear input after submit. Don't force a scroll here — the SSE
+  // "user" event (which arrives almost immediately) handles the
+  // post-submit scroll with the right force=true flag.
+  form.addEventListener("htmx:afterRequest", () => {
+    const input = form.querySelector('input[name="message"]');
+    if (input) input.value = "";
+  });
+})();
+</script>

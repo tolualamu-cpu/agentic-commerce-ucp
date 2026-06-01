@@ -1,0 +1,169 @@
+{# Full-screen gate modal. Hidden by default; opened by gate.js on a
+   `gate.open` event from the /gate/ws stream. Closed on confirm/cancel.
+
+   Markup is purely static — gate.js fills in the basket, totals, and
+   confidence flags from the WS payload. This keeps the server free of
+   any partial-render for gate state (the server's view is the GateData
+   passed to the provider).
+#}
+<div id="gate-modal"
+     class="fixed inset-0 z-40 hidden bg-slate-900/60 backdrop-blur-sm
+            flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl max-w-xl w-full p-6 shadow-2xl">
+    <header class="mb-4">
+      <h2 class="text-lg font-semibold">Confirm purchase</h2>
+      <p class="text-xs text-slate-500" id="gate-merchant"></p>
+    </header>
+
+    <div id="gate-items" class="text-sm divide-y divide-slate-200 mb-3"></div>
+
+    <div class="flex items-baseline justify-between mb-2 font-medium">
+      <span>Total</span>
+      <span id="gate-total"></span>
+    </div>
+
+    <p id="gate-flags" class="text-xs text-amber-700 mb-3 hidden"></p>
+
+    {# Inline question field — same route as typing into chat sidebar #}
+    <form id="gate-question-form" class="flex gap-2 mb-3">
+      <input type="text" id="gate-question" placeholder="Confirm order or ask a question"
+             class="flex-1 px-3 py-2 rounded border border-slate-300 text-sm" />
+      <button type="submit"
+              class="px-3 py-2 text-sm rounded bg-slate-200 hover:bg-slate-300">
+        Send
+      </button>
+    </form>
+
+    <div class="flex gap-2">
+      <button id="gate-cancel"
+              class="flex-1 px-3 py-2 rounded border border-slate-300 text-sm
+                     hover:bg-slate-50">Cancel</button>
+      <button id="gate-confirm"
+              class="flex-[2] px-3 py-2 rounded bg-emerald-600 text-white
+                     text-sm font-semibold hover:bg-emerald-700">
+        Confirm Purchase
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const modal = document.getElementById("gate-modal");
+  const merch = document.getElementById("gate-merchant");
+  const itemsEl = document.getElementById("gate-items");
+  const totalEl = document.getElementById("gate-total");
+  const flagsEl = document.getElementById("gate-flags");
+  const qInput = document.getElementById("gate-question");
+  const qForm = document.getElementById("gate-question-form");
+  const cancelBtn = document.getElementById("gate-cancel");
+  const confirmBtn = document.getElementById("gate-confirm");
+  if (!modal) return;
+
+  // Subscribe to the shared /gate/ws event bus (one WS per page)
+  document.addEventListener("ac:gate", (e) => {
+    const evt = e.detail || {};
+    if (evt.type !== "gate.open") return;
+    const gate = evt.gate || {};
+    // Phase 8f: when the orchestrator re-presents the gate after a
+    // non-mutating Q&A iteration, it sets is_answer_only=true. The
+    // user is already reading the agent's reply in chat — DON'T
+    // reopen the modal. Modal stays hidden until the next mutation
+    // re-present (which sets is_answer_only=false) or until the
+    // orchestrator finishes (SSE "done" closes the modal anyway).
+    if (gate.is_answer_only) {
+      closeModal();
+      return;
+    }
+    openModal(evt);
+  });
+
+  // Phase 8f: auto-close the modal when the orchestrator's run
+  // completes. The chat-stream SSE handler in _toast.html re-broadcasts
+  // each SSE frame as an `ac:sse` DOM event; we listen for `done`
+  // (run finished) and close the modal so any chat reply the agent
+  // streamed during the run is visible.
+  document.addEventListener("ac:sse", (e) => {
+    const evt = e.detail || {};
+    if (evt.type === "done") closeModal();
+  });
+
+  // Phase 8f: Escape and backdrop click HIDE the modal (browser-only;
+  // no decision sent). The gate is still alive — if the orchestrator
+  // re-presents after a mutation, the next `gate.open` reopens the
+  // modal with the new basket.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) {
+      closeModal();
+    }
+  });
+  modal.addEventListener("click", (e) => {
+    // Only the backdrop click closes — clicks inside the inner panel
+    // shouldn't dismiss.
+    if (e.target === modal) closeModal();
+  });
+
+  function openModal(evt) {
+    const g = evt.gate || {};
+    merch.textContent = (g.merchant_domain || "") +
+                        " · " + (g.currency || "USD");
+    itemsEl.innerHTML = "";
+    (g.items || []).forEach((it) => {
+      const row = document.createElement("div");
+      row.className = "py-1.5 flex justify-between";
+      row.innerHTML = "<span>" + escapeHtml(it.name || "") +
+                       " × " + (it.quantity || 1) + "</span>" +
+                       "<span>$" + escapeHtml(it.line_total || it.price || "") +
+                       "</span>";
+      itemsEl.appendChild(row);
+    });
+    totalEl.textContent = "$" + (g.amount || "");
+    if (g.risk_flags && g.risk_flags.length) {
+      flagsEl.textContent = "⚠ " + g.risk_flags.join(", ");
+      flagsEl.classList.remove("hidden");
+    } else {
+      flagsEl.classList.add("hidden");
+    }
+    modal.classList.remove("hidden");
+    qInput.value = "";
+    qInput.focus();
+  }
+
+  function closeModal() { modal.classList.add("hidden"); }
+
+  function send(payload) {
+    if (typeof window.__gateSend === "function") window.__gateSend(payload);
+  }
+
+  confirmBtn.addEventListener("click", () => {
+    send({ decision: "confirm" });
+    closeModal();
+  });
+  cancelBtn.addEventListener("click", () => {
+    send({ decision: "cancel" });
+    closeModal();
+  });
+  qForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = qInput.value.trim();
+    if (!text) return;
+    send({ decision: "question", text });
+    qInput.value = "";
+    // Phase 8f: don't auto-close here. The orchestrator decides what
+    // happens next:
+    //   - Mutation ("remove 1" / "add 1 mug" / etc): orchestrator
+    //     mutates the basket and re-presents the gate → modal
+    //     updates in place via the next ac:gate event.
+    //   - Non-mutating answer ("what's the total?"): orchestrator
+    //     streams the answer to chat and breaks out of the Q&A loop
+    //     → SSE "done" event fires → modal closes via the ac:sse
+    //     listener above; user reads the reply in chat.
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[c]);
+  }
+})();
+</script>

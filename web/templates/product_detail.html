@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }} · {{ product.merchant }}{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+
+{# Breadcrumb #}
+<nav class="text-sm text-slate-500 mb-6 flex items-center gap-1.5">
+  <a href="/" class="hover:text-slate-900 transition">Home</a>
+  <span>›</span>
+  <a href="/search?merchant={{ product.merchant_domain }}"
+     class="hover:text-slate-900 transition">{{ product.merchant }}</a>
+  <span>›</span>
+  <span class="text-slate-700">{{ product.name }}</span>
+</nav>
+
+{# ── Two-column product layout ──────────────────────────────────────────
+   Mobile:   stacked — image above, details below
+   Desktop:  side-by-side — image left (sticky), details right
+#}
+<div class="grid grid-cols-1 lg:grid-cols-2 lg:gap-14 items-start">
+
+  {# ── LEFT — Image gallery ──────────────────────────────────────────── #}
+  <div class="lg:sticky lg:top-6">
+    {# Main image #}
+    <div class="bg-slate-50 rounded-2xl overflow-hidden aspect-square
+                flex items-center justify-center mb-3">
+      {% if product.images %}
+      <img src="{{ product.images[0] }}"
+           id="detail-main-img"
+           alt="{{ product.name }}"
+           class="w-full h-full object-contain"
+           loading="eager"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="w-full h-full flex items-center justify-center hidden">
+        {% with bag_class="w-28 h-28" %}{% include "_carto_bag.html" %}{% endwith %}
+      </div>
+      {% else %}
+      <div class="w-full h-full flex items-center justify-center">
+        {% with bag_class="w-28 h-28" %}{% include "_carto_bag.html" %}{% endwith %}
+      </div>
+      {% endif %}
+    </div>
+
+    {# Thumbnail strip #}
+    {% if product.images and product.images|length > 1 %}
+    <div class="flex gap-2">
+      {% for img_url in product.images %}
+      <button type="button"
+              onclick="document.getElementById('detail-main-img').src='{{ img_url }}';
+                       document.querySelectorAll('[data-thumb]').forEach(function(t){
+                         t.classList.remove('ring-2','ring-slate-900');
+                         t.classList.add('ring-1','ring-slate-200');
+                       });
+                       this.classList.remove('ring-1','ring-slate-200');
+                       this.classList.add('ring-2','ring-slate-900')"
+              data-thumb
+              class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0
+                     {% if loop.first %}ring-2 ring-slate-900{% else %}ring-1 ring-slate-200{% endif %}
+                     hover:ring-slate-400 transition">
+        <img src="{{ img_url }}"
+             alt="{{ product.name }} view {{ loop.index }}"
+             class="w-full h-full object-cover"
+             loading="lazy"
+             onerror="this.parentElement.style.display='none'">
+      </button>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── RIGHT — Product info ──────────────────────────────────────────── #}
+  <div class="mt-8 lg:mt-0">
+
+    {# Merchant attribution #}
+    <p class="text-xs text-slate-400 uppercase tracking-wider mb-2 font-medium">
+      {{ product.merchant }}
+    </p>
+
+    {# Product name #}
+    <h1 class="text-3xl font-bold text-slate-900 leading-tight mb-3">
+      {{ product.name }}
+    </h1>
+
+    {# Price #}
+    <p class="text-2xl font-semibold text-slate-900 mb-4">${{ product.price }}</p>
+
+    {# Rating + stock status #}
+    <div class="flex items-center gap-4 text-sm mb-5">
+      {% if product.rating %}
+      <span class="flex items-center gap-1 text-slate-600">
+        <span class="text-amber-400">★</span>
+        <span class="font-medium">{{ product.rating }}</span>
+        <span class="text-slate-400">
+          ({{ product.review_count }} reviews)
+        </span>
+      </span>
+      {% endif %}
+      {% if product.in_stock %}
+      <span class="inline-flex items-center gap-1 text-emerald-700 font-medium">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+        In stock
+      </span>
+      {% else %}
+      <span class="inline-flex items-center gap-1 text-red-600 font-medium">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-400 inline-block"></span>
+        Out of stock
+      </span>
+      {% endif %}
+    </div>
+
+    <hr class="border-slate-200 mb-5">
+
+    {# ── Variant selection ────────────────────────────────────────────
+       Reserved space for future color swatches and size selection.
+       When variants are added, insert color chips and a size dropdown
+       here — above the quantity + add-to-cart CTA — and add hidden
+       inputs (name="color", name="size") to the form below so they
+       are submitted with the cart add request.
+       See: ARCHITECTURE.md §Product Variants
+    #}
+    <div id="product-variants" class="mb-5">
+      {# Placeholder — renders nothing until variants are implemented #}
+    </div>
+
+    {# ── Add to cart ──────────────────────────────────────────────── #}
+    {% if product.in_stock %}
+    <form action="/cart/add/{{ product.merchant_domain }}/{{ product.product_id }}"
+          method="post"
+          hx-post="/cart/add/{{ product.merchant_domain }}/{{ product.product_id }}"
+          hx-swap="none"
+          hx-on::after-request="if(event.detail.successful){
+            window.__toast && window.__toast('Added: {{ product.name|e }}', 'info');
+            window.__bumpCart && window.__bumpCart();
+          }"
+          class="flex items-center gap-3 mb-4">
+      {# Quantity stepper #}
+      <div class="flex items-center border border-slate-300 rounded-lg overflow-hidden">
+        <button type="button"
+                onclick="var i=this.nextElementSibling;i.value=Math.max(1,+i.value-1)"
+                class="px-3 py-2.5 text-slate-600 hover:bg-slate-100 transition
+                       text-lg leading-none font-medium">−</button>
+        <input type="number" name="quantity" value="1" min="1" max="99"
+               class="w-12 py-2.5 text-center text-sm font-medium border-x
+                      border-slate-300 bg-white focus:outline-none" />
+        <button type="button"
+                onclick="var i=this.previousElementSibling;i.value=Math.min(99,+i.value+1)"
+                class="px-3 py-2.5 text-slate-600 hover:bg-slate-100 transition
+                       text-lg leading-none font-medium">+</button>
+      </div>
+      {# Add to cart CTA #}
+      <button type="submit"
+              class="flex-1 py-3 bg-slate-900 text-white rounded-lg font-semibold
+                     hover:bg-slate-800 active:scale-[0.98] transition text-sm
+                     tracking-wide">
+        Add to cart
+      </button>
+    </form>
+    {% else %}
+    <button disabled
+            class="w-full py-3 bg-slate-100 text-slate-400 rounded-lg font-semibold
+                   cursor-not-allowed text-sm tracking-wide mb-4">
+      Out of stock
+    </button>
+    {% endif %}
+
+    <hr class="border-slate-200 mb-2">
+
+    {# ── Description accordion ────────────────────────────────────── #}
+    {% if product.description %}
+    <details class="border-b border-slate-200 py-4" open>
+      <summary class="flex items-center justify-between cursor-pointer
+                       text-sm font-semibold text-slate-900 select-none
+                       list-none">
+        <span>Description</span>
+        <span class="text-slate-400 text-lg leading-none
+                     transition-transform [details[open]_&]:rotate-45">+</span>
+      </summary>
+      <p class="mt-3 text-sm text-slate-600 leading-relaxed">
+        {{ product.description }}
+      </p>
+    </details>
+    {% endif %}
+
+    {# ── Technical details accordion ─────────────────────────────── #}
+    <details class="border-b border-slate-200 py-4">
+      <summary class="flex items-center justify-between cursor-pointer
+                       text-sm font-semibold text-slate-900 select-none
+                       list-none">
+        <span>Product details</span>
+        <span class="text-slate-400 text-lg leading-none
+                     transition-transform [details[open]_&]:rotate-45">+</span>
+      </summary>
+      <ul class="mt-3 space-y-1.5 text-sm text-slate-500">
+        <li>
+          <span class="text-slate-400">SKU</span>
+          <span class="ml-2 font-mono text-xs">{{ product.product_id }}</span>
+        </li>
+        <li>
+          <span class="text-slate-400">Merchant</span>
+          <span class="ml-2">{{ product.merchant_domain }}</span>
+        </li>
+        {% if product.attributes %}
+        {% for k, v in product.attributes.items() %}
+        <li>
+          <span class="text-slate-400">{{ k | capitalize }}</span>
+          <span class="ml-2">{{ v }}</span>
+        </li>
+        {% endfor %}
+        {% endif %}
+        <li>
+          <span class="text-slate-400">Source</span>
+          <span class="ml-2">{{ product.source_protocol }}</span>
+        </li>
+      </ul>
+    </details>
+
+  </div>{# /right column #}
+</div>{# /two-column grid #}
+
+</div>{# /max-w-6xl container #}
+{% endblock %}

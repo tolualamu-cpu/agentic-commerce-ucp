@@ -1,0 +1,128 @@
+"""UCPProfileDiscovery — fetches /.well-known/ucp, caches in DB.
+
+MVP behaviour: try real fetch first; on failure or 404, look up the stub
+in config/merchant_profiles.json. Both paths produce a UCPProfile or None.
+
+Cache TTL: 60s per UCP spec (also configurable via settings).
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from config.settings import settings
+from models.ucp_profile import UCPProfile
+from storage.db import DB, ProfileCacheQ
+
+
+DEFAULT_STUB_PATH = Path(__file__).resolve().parent.parent / "config" / "merchant_profiles.json"
+
+
+def _parse_dt(s: str) -> datetime:
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    return datetime.fromisoformat(s)
+
+
+class UCPProfileDiscovery:
+    """Discovers merchant UCP profiles.
+
+    Resolution order:
+        1. DB cache (if fresh)
+        2. Real GET https://{domain}/.well-known/ucp
+        3. Stub from merchant_profiles.json
+        4. None (merchant has no UCP support — caller falls back to direct adapter)
+    """
+
+    def __init__(
+        self,
+        db: DB,
+        http_client: httpx.AsyncClient | None = None,
+        stub_path: Path = DEFAULT_STUB_PATH,
+        ttl_seconds: int | None = None,
+    ):
+        self.db = db
+        self._http = http_client
+        self._owns_http = http_client is None
+        self.stub_path = stub_path
+        self.ttl = ttl_seconds if ttl_seconds is not None else settings.profile_cache_ttl_seconds
+        self._stubs = self._load_stubs()
+
+    def _load_stubs(self) -> dict[str, dict[str, Any]]:
+        if not self.stub_path.exists():
+            return {}
+        data = json.loads(self.stub_path.read_text())
+        return data.get("profiles", {})
+
+    @property
+    def http(self) -> httpx.AsyncClient:
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=5.0)
+        return self._http
+
+    async def try_discover(self, merchant_domain: str) -> UCPProfile | None:
+        """Returns a UCPProfile if available, None otherwise."""
+        cached = self._read_cache(merchant_domain)
+        if cached is not None:
+            return cached
+
+        profile = await self._fetch_real(merchant_domain)
+        if profile is None:
+            profile = self._fetch_stub(merchant_domain)
+
+        if profile is not None:
+            self._write_cache(profile)
+        return profile
+
+    async def _fetch_real(self, merchant_domain: str) -> UCPProfile | None:
+        url = f"https://{merchant_domain}/.well-known/ucp"
+        try:
+            resp = await self.http.get(url)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            data.setdefault("merchant_domain", merchant_domain)
+            return UCPProfile(**data)
+        except (httpx.HTTPError, ValueError):
+            return None
+
+    def _fetch_stub(self, merchant_domain: str) -> UCPProfile | None:
+        stub = self._stubs.get(merchant_domain)
+        if not stub:
+            return None
+        # Drop comment fields
+        clean = {k: v for k, v in stub.items() if not k.startswith("_")}
+        return UCPProfile(**clean)
+
+    def _read_cache(self, merchant_domain: str) -> UCPProfile | None:
+        row = self.db.profile_cache.get(ProfileCacheQ.merchant_domain == merchant_domain)
+        if not row:
+            return None
+        cached_at = _parse_dt(row["cached_at"])
+        if datetime.now(timezone.utc) - cached_at > timedelta(seconds=self.ttl):
+            return None
+        try:
+            return UCPProfile(**row["profile"])
+        except Exception:
+            return None
+
+    def _write_cache(self, profile: UCPProfile) -> None:
+        now = datetime.now(timezone.utc)
+        profile_data = profile.model_dump(mode="json")
+        self.db.profile_cache.upsert(
+            {
+                "merchant_domain": profile.merchant_domain,
+                "profile": profile_data,
+                "cached_at": now.isoformat(),
+            },
+            ProfileCacheQ.merchant_domain == profile.merchant_domain,
+        )
+
+    async def close(self) -> None:
+        if self._owns_http and self._http is not None:
+            await self._http.aclose()
