@@ -91,8 +91,9 @@ def _render_drawer(
         return JSONResponse({**summary, "flash": flash}, status_code=status)
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "_cart_drawer.html",
-        {"request": request, "cart": summary, "flash": flash},
+        context={"cart": summary, "flash": flash},
         status_code=status,
     )
 
@@ -310,6 +311,7 @@ async def view_cart(request: Request, sess: WebSession = Depends(get_or_create_s
         return _render_drawer(request, sess)
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "cart.html",
-        {"request": request, "cart": _cart_summary(sess), "flash": None},
+        context={"cart": _cart_summary(sess), "flash": None},
     )

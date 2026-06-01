@@ -41,8 +41,7 @@ def _render(request: Request, name: str, ctx: dict, status: int = 200) -> Respon
         # Strip non-serialisable items; turn Pydantic models into dicts
         safe = _jsonify(ctx)
         return JSONResponse(safe, status_code=status)
-    ctx = {"request": request, **ctx}
-    return templates.TemplateResponse(name, ctx, status_code=status)
+    return templates.TemplateResponse(request, name, context=ctx, status_code=status)
 
 
 def _jsonify(obj):

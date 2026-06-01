@@ -302,8 +302,9 @@ async def products_fragment(
         product_id = p.get("product_id", "")
         in_cart = _in_cart(basket, merchant, product_id)
         rendered = templates.TemplateResponse(
+            request,
             "_chat_product_card.html",
-            {"request": request, "product": p, "in_cart": in_cart},
+            context={"product": p, "in_cart": in_cart},
         )
         parts.append(rendered.body.decode())
 
@@ -322,10 +323,7 @@ async def chat_page(request: Request, sess: WebSession = Depends(get_or_create_s
     in the templates — this handler just hands the session over.
     """
     templates = request.app.state.templates
-    return templates.TemplateResponse(
-        "chat.html",
-        {"request": request},
-    )
+    return templates.TemplateResponse(request, "chat.html")
 
 
 @router.post("/chat/reset")

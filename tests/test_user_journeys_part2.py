@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 
 
@@ -403,11 +403,13 @@ def test_j095_mandate_balance_near_cap(tool_ctx):
 def test_j101_mandate_separated_by_day(tool_ctx):
     """J101: spends from a previous day don't count toward today's cap.
 
-    We seed a spend dated yesterday and verify _compute_spend for today
-    sees $0 today but the prior amount in the month total.
+    Uses fixed dates (mid-month) so the test is never affected by
+    month boundaries (e.g. running on the 1st of a month).
     """
     m = _mandate(tool_ctx, daily_cap=Decimal("100"))
-    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    # Fixed "today" in mid-month; "yesterday" is safely in the same month.
+    today = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+    prev_day = datetime(2026, 6, 14, 12, 0, 0, tzinfo=timezone.utc)
     tool_ctx.db.spend_records.insert(
         {
             "mandate_id": m.mandate_id,
@@ -416,13 +418,10 @@ def test_j101_mandate_separated_by_day(tool_ctx):
             "currency": "USD",
             "vendor": "x.com",
             "category": None,
-            "timestamp": yesterday,
+            "timestamp": prev_day.isoformat(),
         }
     )
-    spent_day, spent_month = tool_ctx.ap2._compute_spend(
-        m.mandate_id,
-        datetime.now(timezone.utc),
-    )
+    spent_day, spent_month = tool_ctx.ap2._compute_spend(m.mandate_id, today)
     assert spent_day == Decimal("0")
     assert spent_month == Decimal("80")
 

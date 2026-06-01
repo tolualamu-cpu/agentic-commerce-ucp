@@ -30,8 +30,7 @@ def _render(request: Request, name: str, ctx: dict, status: int = 200) -> Respon
         # Strip the request key + coerce common non-JSON-safe types
         safe = {k: v for k, v in ctx.items() if k != "request"}
         return JSONResponse(safe, status_code=status)
-    ctx = {"request": request, **ctx}
-    return templates.TemplateResponse(name, ctx, status_code=status)
+    return templates.TemplateResponse(request, name, context=ctx, status_code=status)
 
 
 # ─── Profile ─────────────────────────────────────────────────────────────
