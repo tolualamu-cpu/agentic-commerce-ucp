@@ -49,9 +49,9 @@ class TestConfirmIntents:
     )
     def test_classifies_as_confirm(self, text):
         result = _classify_gate_intent(text)
-        assert result == {
-            "decision": "confirm"
-        }, f"{text!r} should classify as confirm; got {result}"
+        assert result == {"decision": "confirm"}, (
+            f"{text!r} should classify as confirm; got {result}"
+        )
 
 
 # ─── Cancel intent ─────────────────────────────────────────────────────────────
@@ -102,9 +102,9 @@ class TestNegationGuard:
     )
     def test_negated_confirm_routes_as_cancel(self, text):
         result = _classify_gate_intent(text)
-        assert result == {
-            "decision": "cancel"
-        }, f"{text!r} (negated confirm) should route as cancel; got {result}"
+        assert result == {"decision": "cancel"}, (
+            f"{text!r} (negated confirm) should route as cancel; got {result}"
+        )
 
 
 # ─── Question / pass-through intents ──────────────────────────────────────────
@@ -129,9 +129,9 @@ class TestQuestionIntents:
     )
     def test_classifies_as_question(self, text):
         result = _classify_gate_intent(text)
-        assert (
-            result["decision"] == "question"
-        ), f"{text!r} should pass through as question; got {result}"
+        assert result["decision"] == "question", (
+            f"{text!r} should pass through as question; got {result}"
+        )
         assert result["text"] == text
 
     def test_empty_string(self):

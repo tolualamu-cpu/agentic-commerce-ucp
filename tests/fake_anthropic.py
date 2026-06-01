@@ -89,7 +89,7 @@ class _MessagesAPI:
         )
         if not self._queue:
             raise RuntimeError(
-                "FakeAnthropicClient queue exhausted — " "test scripted too few responses"
+                "FakeAnthropicClient queue exhausted — test scripted too few responses"
             )
         return self._queue.pop(0)
 

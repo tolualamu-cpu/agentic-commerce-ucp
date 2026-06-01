@@ -63,9 +63,9 @@ class TestClassifyGateIntent:
     )
     def test_confirm_intents(self, text):
         result = _classify_gate_intent(text)
-        assert result == {
-            "decision": "confirm"
-        }, f"{text!r} should classify as confirm; got {result}"
+        assert result == {"decision": "confirm"}, (
+            f"{text!r} should classify as confirm; got {result}"
+        )
 
     @pytest.mark.parametrize(
         "text",
@@ -120,7 +120,7 @@ class TestChatConfirmRoutesAsDecision:
         assert r.status_code == 202
         body = r.json()
         assert body["decision"] == "confirm", (
-            f"expected the chat router to classify CONFIRM as a confirm " f"decision; got {body}"
+            f"expected the chat router to classify CONFIRM as a confirm decision; got {body}"
         )
 
         # And the message lands on the gate inbox as decision=confirm

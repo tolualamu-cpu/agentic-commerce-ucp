@@ -91,15 +91,15 @@ class TestExplorePageImages:
     def test_explore_page_contains_img_tags(self, client):
         """With seeded catalogue images, /explore cards should render <img>."""
         r = client.get("/")
-        assert (
-            "<img" in r.text
-        ), "Explore page should render <img> tags now that catalogue has images"
+        assert "<img" in r.text, (
+            "Explore page should render <img> tags now that catalogue has images"
+        )
 
     def test_explore_page_references_unsplash(self, client):
         r = client.get("/")
-        assert (
-            "unsplash.com" in r.text
-        ), "Explore page images should reference Unsplash URLs from catalogue"
+        assert "unsplash.com" in r.text, (
+            "Explore page images should reference Unsplash URLs from catalogue"
+        )
 
     def test_explore_page_emoji_fallback_absent_for_seeded_products(self, client):
         r = client.get("/")
@@ -123,9 +123,9 @@ class TestDiscoverySseProductsEvent:
         async def _run():
             queue = asyncio.Queue()
             callbacks = build_web_callbacks(queue)
-            assert not hasattr(
-                callbacks, "on_products"
-            ), "build_web_callbacks must NOT produce an on_products callback"
+            assert not hasattr(callbacks, "on_products"), (
+                "build_web_callbacks must NOT produce an on_products callback"
+            )
 
         asyncio.run(_run())
 
@@ -164,9 +164,9 @@ class TestCartInteractionsFromChatCards:
         sess = _sess(client)
         basket = sess.ctx.session.click_basket
         merchant_items = basket.get("athletic-co.myshopify.com", [])
-        assert any(
-            i["product_id"] == "ath_001" for i in merchant_items
-        ), f"ath_001 should be in cart after add; basket={basket}"
+        assert any(i["product_id"] == "ath_001" for i in merchant_items), (
+            f"ath_001 should be in cart after add; basket={basket}"
+        )
 
     def test_remove_from_cart_decrements_basket(self, client):
         client.get("/")
@@ -176,9 +176,9 @@ class TestCartInteractionsFromChatCards:
         sess = _sess(client)
         basket = sess.ctx.session.click_basket
         merchant_items = basket.get("athletic-co.myshopify.com", [])
-        assert not any(
-            i["product_id"] == "ath_001" for i in merchant_items
-        ), f"ath_001 should be removed from cart; basket={basket}"
+        assert not any(i["product_id"] == "ath_001" for i in merchant_items), (
+            f"ath_001 should be removed from cart; basket={basket}"
+        )
 
     def test_second_add_increments_quantity(self, client):
         client.get("/")
@@ -312,9 +312,9 @@ class TestOnProductsEndToEnd:
         )
         asyncio.run(orch.run(multi_merchant_ctx, "find me running shoes"))
 
-        assert (
-            len(multi_merchant_ctx.session.last_discovered_products) >= 1
-        ), "last_discovered_products must be populated after a discovery run"
+        assert len(multi_merchant_ctx.session.last_discovered_products) >= 1, (
+            "last_discovered_products must be populated after a discovery run"
+        )
 
     def test_products_sse_event_emitted_after_run(self, client):
         """POST /chat with offline API returns 202; products are only visible

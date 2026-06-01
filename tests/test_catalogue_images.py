@@ -24,17 +24,17 @@ class TestCatalogueImages:
     def test_images_is_non_empty_list(self, domain, products):
         for p in products:
             imgs = p.get("images", [])
-            assert (
-                isinstance(imgs, list) and len(imgs) >= 1
-            ), f"{domain}/{p['id']} has empty or non-list images: {imgs!r}"
+            assert isinstance(imgs, list) and len(imgs) >= 1, (
+                f"{domain}/{p['id']} has empty or non-list images: {imgs!r}"
+            )
 
     @pytest.mark.parametrize("domain,products", list(MERCHANTS.items()))
     def test_each_image_url_is_https_string(self, domain, products):
         for p in products:
             for url in p.get("images", []):
-                assert isinstance(url, str) and url.startswith(
-                    "https://"
-                ), f"{domain}/{p['id']} has invalid image URL: {url!r}"
+                assert isinstance(url, str) and url.startswith("https://"), (
+                    f"{domain}/{p['id']} has invalid image URL: {url!r}"
+                )
 
     def test_total_product_count_unchanged(self):
         """Sanity check: catalogue still has 24 products (7+7+10)."""
@@ -49,9 +49,9 @@ class TestCatalogueImages:
         for p in ATHLETIC_CO:
             if p["id"] in shoe_ids:
                 for url in p["images"]:
-                    assert (
-                        "unsplash.com" in url
-                    ), f"{p['id']} image should be from Unsplash; got {url!r}"
+                    assert "unsplash.com" in url, (
+                        f"{p['id']} image should be from Unsplash; got {url!r}"
+                    )
 
     def test_shopify_adapter_maps_images(self):
         """The Shopify adapter must propagate images into ProductResult."""
@@ -67,9 +67,9 @@ class TestCatalogueImages:
         results = asyncio.get_event_loop().run_until_complete(adapter.search_products("mug", {}))
         mug = next((r for r in results if "mug" in r.name.lower()), None)
         assert mug is not None, "Expected at least one mug in Coffee Bar catalogue"
-        assert (
-            isinstance(mug.images, list) and len(mug.images) >= 1
-        ), f"Mug product has no images: {mug}"
-        assert mug.images[0].startswith(
-            "https://"
-        ), f"First image URL should be https://; got {mug.images[0]!r}"
+        assert isinstance(mug.images, list) and len(mug.images) >= 1, (
+            f"Mug product has no images: {mug}"
+        )
+        assert mug.images[0].startswith("https://"), (
+            f"First image URL should be https://; got {mug.images[0]!r}"
+        )

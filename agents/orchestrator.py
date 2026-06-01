@@ -319,7 +319,7 @@ class OrchestratorAgent(BaseAgent):
                 usable = sorted(registered)
             merchant_domains = usable
 
-        message = f"{brief}\n\nMerchant domains to search: " f"{json.dumps(merchant_domains)}"
+        message = f"{brief}\n\nMerchant domains to search: {json.dumps(merchant_domains)}"
         await self._emit_tool_start(
             "call_discovery_agent",
             {"brief": brief, "merchant_domains": merchant_domains},
@@ -465,9 +465,7 @@ class OrchestratorAgent(BaseAgent):
         }
 
     async def _call_evaluation(self, ctx: ToolContext, *, brief: str, products: list[dict]) -> dict:
-        message = (
-            f"{brief}\n\nCandidate products (as JSON): " f"{json.dumps(products, default=str)}"
-        )
+        message = f"{brief}\n\nCandidate products (as JSON): {json.dumps(products, default=str)}"
         await self._emit_tool_start(
             "call_evaluation_agent", {"brief": brief, "product_count": len(products)}
         )
@@ -972,8 +970,7 @@ class OrchestratorAgent(BaseAgent):
             import sys
 
             print(
-                f"[orchestrator] _purge_purchased_from_cart "
-                f"swallowed: {type(exc).__name__}: {exc}",
+                f"[orchestrator] _purge_purchased_from_cart swallowed: {type(exc).__name__}: {exc}",
                 file=sys.stdout,
                 flush=True,
             )
@@ -1030,12 +1027,10 @@ class OrchestratorAgent(BaseAgent):
         """
         if len(basket_items) == 1:
             i = basket_items[0]
-            item_summary = (
-                f"{i['name']} × {i['quantity']} @ ${i['price']} " f"from {merchant_domain}"
-            )
+            item_summary = f"{i['name']} × {i['quantity']} @ ${i['price']} from {merchant_domain}"
         else:
             item_summary = (
-                f"{len(basket_items)} items from {merchant_domain} " f"— basket total ${total}"
+                f"{len(basket_items)} items from {merchant_domain} — basket total ${total}"
             )
 
         full_summary = None
@@ -1318,7 +1313,7 @@ class OrchestratorAgent(BaseAgent):
                 return friendly, basket_items
             removed = existing[0]
             new_basket = [i for i in basket_items if i["product_id"] != target]
-            friendly = f"Removed {removed['name']} (${removed['line_total']}) " f"from your basket."
+            friendly = f"Removed {removed['name']} (${removed['line_total']}) from your basket."
             return friendly, new_basket
 
         if action.kind == "change_quantity":
@@ -1419,7 +1414,7 @@ class OrchestratorAgent(BaseAgent):
                 "line_total": str(price * qty),
             }
             new_basket = basket_items + [entry]
-            friendly = f"Added {entry['name']} × {qty} (${entry['line_total']}) " f"to your basket."
+            friendly = f"Added {entry['name']} × {qty} (${entry['line_total']}) to your basket."
             return friendly, new_basket
 
         if action.kind == "clear":
@@ -1445,8 +1440,7 @@ class OrchestratorAgent(BaseAgent):
             # Validate new item
             if not new_item.get("product_id") or not new_item.get("name"):
                 return (
-                    "I couldn't identify the replacement item. "
-                    "Try 'add [item name]' separately.",
+                    "I couldn't identify the replacement item. Try 'add [item name]' separately.",
                     basket_items,
                 )
             try:
@@ -1690,8 +1684,7 @@ class OrchestratorAgent(BaseAgent):
 
         if added_names:
             attempted_str = (
-                f"Adding {' and '.join(added_names)} would bring the basket "
-                f"to ${attempted_total}"
+                f"Adding {' and '.join(added_names)} would bring the basket to ${attempted_total}"
             )
         else:
             # Could be a quantity bump

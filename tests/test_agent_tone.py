@@ -100,10 +100,7 @@ def test_no_prompt_contains_emoji_in_its_own_text():
     # Anywhere else, no emoji should appear in operational instructions.
     emoji_pattern = re.compile(
         # Common emoji ranges
-        "[\U0001f300-\U0001f6ff"
-        "\U0001f900-\U0001f9ff"
-        "\U00002600-\U000027bf"
-        "\U0001f1e0-\U0001f1ff]"
+        "[\U0001f300-\U0001f6ff\U0001f900-\U0001f9ff\U00002600-\U000027bf\U0001f1e0-\U0001f1ff]"
     )
     for name, prompt in ALL_SUBAGENT_PROMPTS.items():
         # Only emoji should appear in the TONE_RULES "examples to avoid" section
@@ -120,7 +117,5 @@ def test_orchestrator_body_no_stray_emojis():
     rendered = orchestrator_prompt(["x.com"])
     # The merchant_list line never has emojis. The body itself shouldn't.
     non_tone = rendered.replace(TONE_RULES, "")
-    emoji_pattern = re.compile(
-        "[\U0001f300-\U0001f6ff" "\U0001f900-\U0001f9ff" "\U00002600-\U000027bf]"
-    )
+    emoji_pattern = re.compile("[\U0001f300-\U0001f6ff\U0001f900-\U0001f9ff\U00002600-\U000027bf]")
     assert not emoji_pattern.findall(non_tone)

@@ -64,9 +64,9 @@ class TestCartItemStoresImageUrl:
         items = sess.ctx.session.click_basket.get(_SHOE_MERCHANT, [])
         shoe = next((i for i in items if i["product_id"] == _SHOE_ID), None)
         assert shoe is not None, "Shoe should be in basket"
-        assert (
-            "image_url" in shoe
-        ), f"Cart item must have image_url field; got keys: {list(shoe.keys())}"
+        assert "image_url" in shoe, (
+            f"Cart item must have image_url field; got keys: {list(shoe.keys())}"
+        )
 
     def test_image_url_is_https_string(self, client):
         """image_url must be a non-empty https:// URL."""
@@ -76,9 +76,9 @@ class TestCartItemStoresImageUrl:
         items = sess.ctx.session.click_basket.get(_SHOE_MERCHANT, [])
         shoe = next(i for i in items if i["product_id"] == _SHOE_ID)
         url = shoe["image_url"]
-        assert isinstance(url, str) and url.startswith(
-            "https://"
-        ), f"image_url must be a https:// string; got {url!r}"
+        assert isinstance(url, str) and url.startswith("https://"), (
+            f"image_url must be a https:// string; got {url!r}"
+        )
 
     def test_image_url_matches_catalogue_first_image(self, client):
         """image_url must match images[0] from the catalogue."""
@@ -90,9 +90,9 @@ class TestCartItemStoresImageUrl:
         sess = _sess(client)
         items = sess.ctx.session.click_basket.get(_SHOE_MERCHANT, [])
         shoe = next(i for i in items if i["product_id"] == _SHOE_ID)
-        assert (
-            shoe["image_url"] == expected
-        ), f"Expected image_url={expected!r}; got {shoe['image_url']!r}"
+        assert shoe["image_url"] == expected, (
+            f"Expected image_url={expected!r}; got {shoe['image_url']!r}"
+        )
 
     def test_existing_fields_still_present(self, client):
         """Adding image_url must not remove the 6 original cart fields."""

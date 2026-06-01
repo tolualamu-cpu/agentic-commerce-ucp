@@ -166,7 +166,7 @@ def _build_anthropic_client():
         from anthropic import AsyncAnthropic
     except ImportError:
         console.print(
-            "[red]anthropic SDK not installed.[/] " "Run: [bold]pip install anthropic>=0.40[/]"
+            "[red]anthropic SDK not installed.[/] Run: [bold]pip install anthropic>=0.40[/]"
         )
         sys.exit(1)
     return AsyncAnthropic(api_key=api_key)

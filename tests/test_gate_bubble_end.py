@@ -164,9 +164,9 @@ def test_bubble_end_emitted_after_gate_qa_on_text(tool_ctx):
         for i in range(len(events) - 1)
         if events[i][0] == "text" and events[i + 1][0] == "bubble_end"
     ]
-    assert (
-        len(text_then_end_pairs) >= 1
-    ), f"Expected at least one text→bubble_end pair in events; got {events}"
+    assert len(text_then_end_pairs) >= 1, (
+        f"Expected at least one text→bubble_end pair in events; got {events}"
+    )
 
 
 def test_bubble_end_not_emitted_when_no_callback_set(tool_ctx):

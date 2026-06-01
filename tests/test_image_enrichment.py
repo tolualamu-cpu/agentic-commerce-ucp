@@ -95,9 +95,9 @@ class TestEnrichAudioHub:
             _enrich_products_with_images(multi_ctx, [p])
         )
         assert result[0]["images"]
-        assert (
-            "unsplash.com" in result[0]["images"][0]
-        ), f"Expected Unsplash URL; got {result[0]['images'][0]!r}"
+        assert "unsplash.com" in result[0]["images"][0], (
+            f"Expected Unsplash URL; got {result[0]['images'][0]!r}"
+        )
 
     def test_noise_cancelling_headphones_filled(self, multi_ctx):
         p = _make_product_dict("aud_002", "audio-hub.myshopify.com")
@@ -115,9 +115,9 @@ class TestEnrichAudioHub:
         assert result[0]["images"]
         # Should be AirPods-style earbuds photo, not sunglasses
         # (photo-1600490036547 = AirPods, not photo-1572635196237 = sunglasses)
-        assert (
-            "1572635196237" not in result[0]["images"][0]
-        ), "Earbuds should not use the sunglasses photo ID"
+        assert "1572635196237" not in result[0]["images"][0], (
+            "Earbuds should not use the sunglasses photo ID"
+        )
 
     def test_bluetooth_speaker_filled(self, multi_ctx):
         p = _make_product_dict("aud_005", "audio-hub.myshopify.com")
@@ -146,9 +146,9 @@ class TestEnrichCoffeeBar:
         )
         assert result[0]["images"]
         # Should use the verified tumbler photo, not the old 404 URL
-        assert (
-            "1570087616523" not in result[0]["images"][0]
-        ), "Tumbler should not use the previously-failing photo ID"
+        assert "1570087616523" not in result[0]["images"][0], (
+            "Tumbler should not use the previously-failing photo ID"
+        )
 
     def test_ethiopia_beans_filled(self, multi_ctx):
         p = _make_product_dict("cof_003", "coffee-bar.myshopify.com")
@@ -200,9 +200,9 @@ class TestEnrichEdgeCases:
         result = asyncio.get_event_loop().run_until_complete(
             _enrich_products_with_images(multi_ctx, products)
         )
-        assert all(
-            r["images"] for r in result
-        ), "All products in a cross-merchant list should be enriched"
+        assert all(r["images"] for r in result), (
+            "All products in a cross-merchant list should be enriched"
+        )
 
     def test_already_enriched_products_not_modified(self, multi_ctx):
         """Products with existing images must not be modified."""

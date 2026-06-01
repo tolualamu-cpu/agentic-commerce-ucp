@@ -138,13 +138,13 @@ def test_chat_history_hides_at_confirmation_gate_turns(web_client):
     texts = [t["text"] for t in history]
 
     # Gate Q&A turn must be absent from the history list
-    assert not any(
-        t.startswith("[at confirmation gate]") for t in texts
-    ), f"Gate Q&A turn leaked into chat_history: {texts}"
+    assert not any(t.startswith("[at confirmation gate]") for t in texts), (
+        f"Gate Q&A turn leaked into chat_history: {texts}"
+    )
     # "add 1 more" embedded inside the gate prefix must also be absent
-    assert not any(
-        "add 1 more" in t for t in texts
-    ), f"Gate Q&A content leaked into chat_history: {texts}"
+    assert not any("add 1 more" in t for t in texts), (
+        f"Gate Q&A content leaked into chat_history: {texts}"
+    )
 
     # Normal turns must still be present
     assert any("buy shoes" in t for t in texts)

@@ -44,9 +44,9 @@ class TestProductDetailImages:
         """Page must render at least one <img> for the primary product image."""
         merchant, pid = _ATH_001
         r = client.get(f"/product/{merchant}/{pid}")
-        assert (
-            "<img" in r.text
-        ), "Product detail page must contain an <img> tag for the product image"
+        assert "<img" in r.text, (
+            "Product detail page must contain an <img> tag for the product image"
+        )
 
     def test_detail_page_references_unsplash(self, client):
         """Primary image URL should be from Unsplash (matches catalogue data)."""
@@ -60,9 +60,9 @@ class TestProductDetailImages:
         r = client.get(f"/product/{merchant}/{pid}")
         # Should have at least 2 img tags (main + thumbnail)
         img_count = r.text.count("<img")
-        assert (
-            img_count >= 2
-        ), f"Expected at least 2 <img> tags for thumbnail strip; found {img_count}"
+        assert img_count >= 2, (
+            f"Expected at least 2 <img> tags for thumbnail strip; found {img_count}"
+        )
 
     def test_detail_page_has_detail_main_img_id(self, client):
         """The primary image must have id='detail-main-img' for JS switching."""

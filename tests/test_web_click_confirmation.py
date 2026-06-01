@@ -223,9 +223,9 @@ class TestClickConfirmationRendering:
         client.get("/")
         self._add_click_note(_sess(client), "added Demo Running Shoes × 1")
         r = client.get("/chat")
-        assert (
-            "bg-slate-50" in r.text
-        ), "Styled cart confirmation (bg-slate-50) must appear in rendered HTML"
+        assert "bg-slate-50" in r.text, (
+            "Styled cart confirmation (bg-slate-50) must appear in rendered HTML"
+        )
 
     def test_action_text_capitalised(self, client):
         """The action text must be capitalised in the styled div (not grey italic)."""
@@ -245,9 +245,9 @@ class TestClickConfirmationRendering:
         # The styled confirmation (bg-slate-50) must be rendered
         assert "bg-slate-50" in r.text, "New styled cart confirmation (bg-slate-50) must be present"
         # The old ↳ arrow rendering must be gone
-        assert (
-            "↳ [via UI click]" not in r.text
-        ), "Old ↳ [via UI click] arrow must not appear in rendered HTML"
+        assert "↳ [via UI click]" not in r.text, (
+            "Old ↳ [via UI click] arrow must not appear in rendered HTML"
+        )
 
     def test_via_ui_click_prefix_not_in_rendered_html_element(self, client):
         """[via UI click] prefix must not appear in HTML element content.
@@ -257,6 +257,6 @@ class TestClickConfirmationRendering:
         self._add_click_note(_sess(client), "added Demo Running Shoes × 1")
         r = client.get("/chat")
         # Check the old grey italic div is gone — that's where [via UI click] showed
-        assert (
-            "↳ [via UI click]" not in r.text
-        ), "The ↳ [via UI click] arrow rendering must not appear in the HTML"
+        assert "↳ [via UI click]" not in r.text, (
+            "The ↳ [via UI click] arrow rendering must not appear in the HTML"
+        )

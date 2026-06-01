@@ -117,9 +117,9 @@ class TestProviderRoundTrip:
             return await task
 
         resp = asyncio.run(go())
-        assert (
-            resp.decision == "confirm"
-        ), "drain failed: stale cancel was consumed instead of fresh confirm"
+        assert resp.decision == "confirm", (
+            "drain failed: stale cancel was consumed instead of fresh confirm"
+        )
 
     def test_gate_event_published_to_outbox(self):
         """When explicit_confirm is awaiting, the outbox holds a gate.open."""

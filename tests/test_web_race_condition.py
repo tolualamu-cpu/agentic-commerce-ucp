@@ -270,9 +270,9 @@ class TestCartAddAfterProductCards:
                 isinstance(b, dict) and b.get("type") == "tool_use" for b in t.get("content", [])
             )
         ]
-        assert (
-            len(tool_use_turns) == 0
-        ), f"All orphaned tool_use turns must be stripped; found: {tool_use_turns}"
+        assert len(tool_use_turns) == 0, (
+            f"All orphaned tool_use turns must be stripped; found: {tool_use_turns}"
+        )
 
 
 # ─── Products event structure via fragment endpoint ──────────────────────────

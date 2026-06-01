@@ -57,7 +57,7 @@ async def create_checkout_session(
         import sys
 
         print(
-            f"[purchase_tools] create_checkout_session: NO CLIENT for " f"{merchant_domain!r}",
+            f"[purchase_tools] create_checkout_session: NO CLIENT for {merchant_domain!r}",
             file=sys.stdout,
             flush=True,
         )
@@ -69,7 +69,7 @@ async def create_checkout_session(
         import traceback
 
         print(
-            f"[purchase_tools] create_checkout_session FAILED: " f"{type(exc).__name__}: {exc}",
+            f"[purchase_tools] create_checkout_session FAILED: {type(exc).__name__}: {exc}",
             file=sys.stdout,
             flush=True,
         )
@@ -106,8 +106,7 @@ async def update_checkout_session(
             import sys
 
             print(
-                f"[purchase_tools] buyer coercion failed: {buyer!r} → "
-                f"{type(exc).__name__}: {exc}",
+                f"[purchase_tools] buyer coercion failed: {buyer!r} → {type(exc).__name__}: {exc}",
                 file=sys.stdout,
                 flush=True,
             )
@@ -137,7 +136,7 @@ async def update_checkout_session(
         ctx,
         agent=agent,
         tool="update_checkout_session",
-        action=f"session={session_id} items={len(items)} " f"buyer_injected={buyer is not None}",
+        action=f"session={session_id} items={len(items)} buyer_injected={buyer is not None}",
         mandate_id=mandate_id,
         args={
             "session_id": session_id,
@@ -168,8 +167,7 @@ async def update_checkout_session(
                 import sys
 
                 print(
-                    f"[purchase_tools] item coercion failed: {raw!r} → "
-                    f"{type(exc).__name__}: {exc}",
+                    f"[purchase_tools] item coercion failed: {raw!r} → {type(exc).__name__}: {exc}",
                     file=sys.stdout,
                     flush=True,
                 )
@@ -182,7 +180,7 @@ async def update_checkout_session(
         import sys
 
         print(
-            f"[purchase_tools] update_checkout_session: NO CLIENT for " f"{merchant_domain!r}",
+            f"[purchase_tools] update_checkout_session: NO CLIENT for {merchant_domain!r}",
             file=sys.stdout,
             flush=True,
         )
@@ -208,7 +206,7 @@ async def update_checkout_session(
         import traceback
 
         print(
-            f"[purchase_tools] update_checkout_session FAILED: " f"{type(exc).__name__}: {exc}",
+            f"[purchase_tools] update_checkout_session FAILED: {type(exc).__name__}: {exc}",
             file=sys.stdout,
             flush=True,
         )
@@ -342,7 +340,7 @@ async def save_order(ctx: ToolContext, *, order) -> dict:
         import sys
 
         print(
-            f"[purchase_tools] save_order: unsupported order type " f"{type(coerced).__name__}",
+            f"[purchase_tools] save_order: unsupported order type {type(coerced).__name__}",
             file=sys.stdout,
             flush=True,
         )

@@ -312,9 +312,9 @@ class TestSseFanout:
         # page) and handles cart_update events directly.
         r = client.get("/")
         text = r.text
-        assert (
-            'new EventSource("/chat/stream")' in text
-        ), "toast script must open the page's single EventSource"
+        assert 'new EventSource("/chat/stream")' in text, (
+            "toast script must open the page's single EventSource"
+        )
         # cart_update branch
         assert '"cart_update"' in text
         # And the setCartBadge updater is on window

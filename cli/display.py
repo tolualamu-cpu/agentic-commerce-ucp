@@ -82,11 +82,11 @@ def display_mandate_status(
     t.add_row("Per-transaction", f"${mandate.max_amount}")
     t.add_row(
         "Daily cap",
-        f"${spent_today} / ${mandate.daily_cap}  " f"({_pct(spent_today, mandate.daily_cap)})",
+        f"${spent_today} / ${mandate.daily_cap}  ({_pct(spent_today, mandate.daily_cap)})",
     )
     t.add_row(
         "Monthly cap",
-        f"${spent_month} / ${mandate.monthly_cap}  " f"({_pct(spent_month, mandate.monthly_cap)})",
+        f"${spent_month} / ${mandate.monthly_cap}  ({_pct(spent_month, mandate.monthly_cap)})",
     )
     if mandate.allowed_categories:
         t.add_row("Categories", ", ".join(mandate.allowed_categories))
@@ -268,7 +268,7 @@ def display_profile(user: UserProfile) -> None:
             mark_str = f"  [dim]({', '.join(marks)})[/]" if marks else ""
             t.add_row(
                 label,
-                f"{a.line1}, {a.city}, {a.region} {a.postal_code}, {a.country}" f"{mark_str}",
+                f"{a.line1}, {a.city}, {a.region} {a.postal_code}, {a.country}{mark_str}",
             )
     else:
         t.add_row("Address", "[yellow]none on file[/]")
@@ -384,8 +384,7 @@ class RichConfirmProvider(ConfirmationProvider):
         # that says "Type CONFIRM to proceed" on a $0 basket.
         if not gate.items:
             answer = Prompt.ask(
-                "[dim]Empty basket — add items, ask a question, or "
-                "type [bold red]cancel[/]:[/] ",
+                "[dim]Empty basket — add items, ask a question, or type [bold red]cancel[/]:[/] ",
                 default="",
                 show_default=False,
             ).strip()
@@ -446,7 +445,7 @@ class RichConfirmProvider(ConfirmationProvider):
         footer.append("cancel", style="bold red")
         footer.append(" to abort, or edit your basket:\n", style="dim")
         footer.append(
-            "  remove 1 · change to 2 · add [item] · " "swap [old] for [new] · clear basket",
+            "  remove 1 · change to 2 · add [item] · swap [old] for [new] · clear basket",
             style="dim italic",
         )
         renderables.append(footer)

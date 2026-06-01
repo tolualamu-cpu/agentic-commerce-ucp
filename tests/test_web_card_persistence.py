@@ -178,9 +178,9 @@ class TestCardSetsViaHttpClient:
         assert len(sess.ctx.session.product_card_sets) == 1
 
         client.post("/chat/reset")
-        assert (
-            sess.ctx.session.product_card_sets == []
-        ), "product_card_sets must be cleared on chat reset"
+        assert sess.ctx.session.product_card_sets == [], (
+            "product_card_sets must be cleared on chat reset"
+        )
 
     def test_chat_page_loads_with_card_sets_in_session(self, client):
         """If card sets exist, GET /chat should not error."""
@@ -326,9 +326,9 @@ class TestChatLogRendersPersistedCards:
         r = client.get("/chat")
         assert r.status_code == 200
         # Old grey italic arrow rendering should be gone
-        assert (
-            "↳ [via UI click]" not in r.text
-        ), "Click notes must not render as '↳ [via UI click]' grey italic text"
+        assert "↳ [via UI click]" not in r.text, (
+            "Click notes must not render as '↳ [via UI click]' grey italic text"
+        )
         # New styled confirmation should appear
         assert "Added" in r.text or "added" in r.text
 
@@ -480,5 +480,5 @@ class TestCardsRenderBeforeSummaryText:
         assert summary in body
         # ...and the card must come BEFORE the summary text in the markup.
         assert body.index(card_marker) < body.index(summary), (
-            "product cards must render above the summary text to match the " "live SSE order"
+            "product cards must render above the summary text to match the live SSE order"
         )

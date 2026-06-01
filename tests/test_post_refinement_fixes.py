@@ -114,9 +114,9 @@ class TestMandateAwareness:
             "differs from the mandate",
             "asserts a different limit",
         )
-        assert any(
-            s in rendered_lower for s in assigned_word_indicators
-        ), f"Prompt missing user-assertion guardrail; got:\n{rendered}"
+        assert any(s in rendered_lower for s in assigned_word_indicators), (
+            f"Prompt missing user-assertion guardrail; got:\n{rendered}"
+        )
 
     def test_tone_rules_forbid_markdown(self):
         assert "markdown" in TONE_RULES.lower()

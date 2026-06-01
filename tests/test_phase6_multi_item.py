@@ -371,7 +371,7 @@ def test_basket_total_enforced_against_per_tx_cap(tool_ctx):
             ),
             # PurchaseAgent would respond, but gate approves and AP2 blocks payment
             text_response(
-                '{"order": null, "status": "failed", ' '"reason": "exceeds_per_transaction_cap"}'
+                '{"order": null, "status": "failed", "reason": "exceeds_per_transaction_cap"}'
             ),
             text_response("Sorry, that basket exceeds your limit."),
         ],

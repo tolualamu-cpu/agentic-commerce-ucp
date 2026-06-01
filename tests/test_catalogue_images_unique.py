@@ -40,7 +40,7 @@ class TestCatalogueImageUniqueness:
             for dup_url, count in duplicates.items():
                 offenders = [f"{domain}/{pid}" for domain, pid, url in records if url == dup_url]
                 detail_lines.append(
-                    f"  URL used {count}× → {dup_url}\n" f"    products: {', '.join(offenders)}"
+                    f"  URL used {count}× → {dup_url}\n    products: {', '.join(offenders)}"
                 )
             pytest.fail(
                 f"{len(duplicates)} duplicate image URL(s) found:\n" + "\n".join(detail_lines)
@@ -75,9 +75,9 @@ class TestCatalogueImageUniqueness:
     def test_total_image_count(self):
         """Sanity: 24 products × 2 images each = 48 total image entries."""
         records = _all_image_records()
-        assert (
-            len(records) == 48
-        ), f"Expected 48 image entries (24 products × 2); got {len(records)}"
+        assert len(records) == 48, (
+            f"Expected 48 image entries (24 products × 2); got {len(records)}"
+        )
 
     def test_every_product_has_at_least_two_images(self):
         """Each product must have a primary AND at least one secondary image."""

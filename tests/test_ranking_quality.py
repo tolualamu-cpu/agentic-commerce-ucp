@@ -59,9 +59,9 @@ def test_rank_coffee_mugs_cheapest_does_not_always_win(multi_merchant_ctx):
     # alone doesn't dominate.
     cheapest = next(r for r in ranked if r.product.price == Decimal("14"))
     highest_rated = next(r for r in ranked if r.product.product_id == "cof_006")
-    assert (
-        cheapest.score != highest_rated.score
-    ), "ranker shouldn't tie cheapest with highest-rated — composite score should differ"
+    assert cheapest.score != highest_rated.score, (
+        "ranker shouldn't tie cheapest with highest-rated — composite score should differ"
+    )
 
 
 def test_rank_oos_item_flagged(multi_merchant_ctx):

@@ -778,9 +778,9 @@ class TestSecurity:
 
         found_ids = re.findall(r"\[id: (\w+)\]", text)
         for pid in found_ids:
-            assert not pid.startswith(
-                "aud_"
-            ), f"Audio Hub product {pid} leaked into Coffee Bar search"
+            assert not pid.startswith("aud_"), (
+                f"Audio Hub product {pid} leaked into Coffee Bar search"
+            )
 
     def test_clear_then_add_revalidates_mandate(self, tool_ctx):
         """After clearing basket, adding items requires re-validation."""

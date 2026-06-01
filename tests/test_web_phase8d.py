@@ -67,9 +67,9 @@ class TestEmptyChatFormReload:
         # We check that the SPECIFIC reload snippet is not present.
         # The page may still contain "/chat" in other contexts (nav
         # links etc.), so we check the reload-specific JS string.
-        assert (
-            RELOAD_SNIPPET not in r.text
-        ), "active-state form must NOT navigate; SSE streams the reply"
+        assert RELOAD_SNIPPET not in r.text, (
+            "active-state form must NOT navigate; SSE streams the reply"
+        )
 
 
 class TestSseDedupTemplateState:
@@ -146,12 +146,12 @@ class TestOrchestratorPromptNoRepeatPreamble:
         # therefore in the orchestrator's system prompt which appends
         # TONE_RULES).
         assert "Here they are again" in TONE_RULES, (
-            "TONE_RULES must list the 'Here they are again' phrasing " "as a forbidden preamble"
+            "TONE_RULES must list the 'Here they are again' phrasing as a forbidden preamble"
         )
         assert (
             "already have results" in TONE_RULES.lower()
             or "already have these" in TONE_RULES.lower()
-        ), "TONE_RULES must explicitly forbid 'I already have results' " "or equivalent preamble"
+        ), "TONE_RULES must explicitly forbid 'I already have results' or equivalent preamble"
         # And the orchestrator prompt includes TONE_RULES
         assert "Here they are again" in ORCHESTRATOR
 

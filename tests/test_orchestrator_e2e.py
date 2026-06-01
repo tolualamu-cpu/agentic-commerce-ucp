@@ -107,7 +107,7 @@ def test_orchestrated_journey_discovery_eval_confirm_purchase(tool_ctx):
         ),
         # ── PurchaseAgent run: returns completion ──
         text_response(
-            '{"order": {"order_id": "ord_e2e", "status": "confirmed"},' '"status": "completed"}'
+            '{"order": {"order_id": "ord_e2e", "status": "confirmed"},"status": "completed"}'
         ),
         # ── Orchestrator final reply (text) ──
         text_response("Done — your order is confirmed. The shoes will ship in 2-3 days."),

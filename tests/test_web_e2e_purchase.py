@@ -502,9 +502,9 @@ def test_happy_purchase():
             await gate_task
 
             # No SSE-level error event
-            assert not any(
-                e["type"] == "error" for e in events
-            ), f"unexpected error event in {events}"
+            assert not any(e["type"] == "error" for e in events), (
+                f"unexpected error event in {events}"
+            )
 
             # THE regression catcher for the dict-vs-CartItem bug:
             # if update_checkout_session crashed on i.product_id, its
@@ -525,17 +525,17 @@ def test_happy_purchase():
             # ones that do.
             audit = sess.ctx.db.audit_log.all()
             tools_logged = {row["tool"] for row in audit}
-            assert (
-                "hitl_gate" in tools_logged
-            ), f"gate should have been audited; tools={tools_logged}"
+            assert "hitl_gate" in tools_logged, (
+                f"gate should have been audited; tools={tools_logged}"
+            )
             assert "update_checkout_session" in tools_logged, (
                 f"update_checkout_session did not complete (this is the "
                 f"dict-vs-CartItem regression catcher); "
                 f"tools={tools_logged}"
             )
-            assert (
-                "complete_order" in tools_logged
-            ), f"complete_order did not run; tools={tools_logged}"
+            assert "complete_order" in tools_logged, (
+                f"complete_order did not run; tools={tools_logged}"
+            )
 
             # Spend recorded against the mandate (proves the chain
             # reached its final tool successfully)
@@ -607,9 +607,9 @@ def test_cancel_at_gate():
             tools_logged = {row["tool"] for row in audit}
             assert "hitl_gate" in tools_logged
             gate_rows = [r for r in audit if r["tool"] == "hitl_gate"]
-            assert any(
-                "cancel" in (r.get("action") or "").lower() for r in gate_rows
-            ), f"no cancel audit entry: {gate_rows}"
+            assert any("cancel" in (r.get("action") or "").lower() for r in gate_rows), (
+                f"no cancel audit entry: {gate_rows}"
+            )
         finally:
             await ac.aclose()
 
@@ -667,9 +667,9 @@ def test_cap_exceeded_no_gate_fires():
             # would have audited via hitl_gate.
             audit = sess.ctx.db.audit_log.all()
             tools_logged = {row["tool"] for row in audit}
-            assert (
-                "hitl_gate" not in tools_logged
-            ), f"gate should not have fired; audit={tools_logged}"
+            assert "hitl_gate" not in tools_logged, (
+                f"gate should not have fired; audit={tools_logged}"
+            )
         finally:
             await ac.aclose()
 
@@ -714,9 +714,9 @@ def test_revoked_mandate_blocks_purchase():
                 sess.mandate_id,
                 datetime.now(timezone.utc),
             )
-            assert spent_day == Decimal(
-                "0"
-            ), f"expected zero spend on revoked mandate, got {spent_day}"
+            assert spent_day == Decimal("0"), (
+                f"expected zero spend on revoked mandate, got {spent_day}"
+            )
 
             # The PurchaseAgent halted early — no UCP chain tool that
             # audits (create/update/get_token/complete) should have run.
@@ -728,7 +728,7 @@ def test_revoked_mandate_blocks_purchase():
                 "complete_order",
             ):
                 assert blocked not in tools_logged, (
-                    f"{blocked} should not run on revoked mandate; " f"audit={tools_logged}"
+                    f"{blocked} should not run on revoked mandate; audit={tools_logged}"
                 )
         finally:
             await ac.aclose()
@@ -824,11 +824,11 @@ def test_stale_cancel_does_not_poison_next_gate():
             gate_rows = [r for r in audit if r["tool"] == "hitl_gate"]
             gate_actions = " ".join(r.get("action", "") for r in gate_rows)
 
-            assert (
-                "approved" in gate_actions
-            ), f"stale cancel poisoned the gate: actions={gate_actions!r}"
+            assert "approved" in gate_actions, (
+                f"stale cancel poisoned the gate: actions={gate_actions!r}"
+            )
             assert "update_checkout_session" in tools_logged, (
-                f"chain halted before update_checkout_session: " f"tools={tools_logged}"
+                f"chain halted before update_checkout_session: tools={tools_logged}"
             )
         finally:
             await ac.aclose()

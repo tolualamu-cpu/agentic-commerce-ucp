@@ -81,9 +81,9 @@ class TestNoOnProductsCallback:
         """build_web_callbacks must not wire a mid-run products callback."""
         queue = asyncio.Queue()
         cb = build_web_callbacks(queue)
-        assert not hasattr(
-            cb, "on_products"
-        ), "build_web_callbacks must not produce an on_products callback"
+        assert not hasattr(cb, "on_products"), (
+            "build_web_callbacks must not produce an on_products callback"
+        )
 
     def test_orchestrator_has_no_emit_products_method(self):
         """_emit_products helper was removed along with the callback."""
@@ -127,9 +127,9 @@ class TestLastDiscoveredProductsPopulated:
 
         asyncio.get_event_loop().run_until_complete(orch.run(multi_merchant_ctx, "find me shoes"))
 
-        assert (
-            len(multi_merchant_ctx.session.last_discovered_products) > 0
-        ), "last_discovered_products must be populated after a discovery run"
+        assert len(multi_merchant_ctx.session.last_discovered_products) > 0, (
+            "last_discovered_products must be populated after a discovery run"
+        )
 
     def test_get_last_discovered_returns_cache(self, multi_merchant_ctx):
         """get_last_discovered_products tool returns the cached list."""

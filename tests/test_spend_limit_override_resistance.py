@@ -154,7 +154,7 @@ def test_agent_cannot_exceed_per_tx_cap(tool_ctx):
                 )
             ),
             text_response(
-                '{"order": null, "status": "failed", ' '"reason": "exceeds_per_transaction_cap"}'
+                '{"order": null, "status": "failed", "reason": "exceeds_per_transaction_cap"}'
             ),
         ]
     )
