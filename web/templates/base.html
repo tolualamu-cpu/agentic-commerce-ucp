@@ -4,12 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Carto{% endblock %}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.10" defer></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet">
+  {# Prebuilt Tailwind (replaces the in-browser cdn.tailwindcss.com JIT
+     compiler — see tailwind.config.js for the rebuild command). #}
+  <link rel="stylesheet" href="/static/css/app.css" />
+  {# Self-hosted HTMX (was unpkg.com) #}
+  <script src="/static/js/htmx.min.js" defer></script>
   <style>
+    /* Self-hosted Pacifico (logo only) — latin subset, was Google Fonts */
+    @font-face {
+      font-family: 'Pacifico';
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url('/static/fonts/pacifico-latin.woff2') format('woff2');
+    }
     /* Body / UI text → Avenir Next (Apple-bundled; graceful fallback elsewhere) */
     body { font-family: "Avenir Next", "Avenir", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     /* Prominent headings (hero headlines + each page's main <h1> title) → Georgia */
@@ -17,6 +25,39 @@
     /* Hide scrollbar on horizontal carousels but keep scroll behaviour */
     .overflow-x-auto::-webkit-scrollbar { height: 6px; }
     .overflow-x-auto::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
+    /* Typewriter caret (hero + chat empty-state headlines). Softly fades
+       in/out while text is being typed; .tw-caret-done removes it once the
+       headline finishes. A smooth ease-in-out blink reads calmer than a
+       hard step blink. */
+    @keyframes tw-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .tw-caret {
+      display: inline-block;
+      margin-left: 2px;
+      font-weight: 300;
+      color: #94a3b8; /* slate-400 */
+      animation: tw-blink 1.1s ease-in-out infinite;
+    }
+    .tw-caret-done { animation: none; opacity: 0; }
+    /* Chat entrance animations: each complete bubble fades+slides in once,
+       and product cards cascade in with a per-card stagger (set via inline
+       animation-delay in _chat_sse.html). Only applied to LIVE SSE-rendered
+       elements — server-rendered history is not animated on reload. */
+    @keyframes ac-bubble-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes ac-card-in {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    /* Slow, gradual glide-in. ease-in-out ramps the opacity up gently from the
+       start (no front-loaded "pop"/flash) and settles softly at the end. */
+    .ac-bubble-in { animation: ac-bubble-in 850ms ease-in-out both; }
+    .ac-card-in   { animation: ac-card-in 1000ms ease-in-out both; }
+    /* Respect reduced-motion: show everything instantly, no movement. */
+    @media (prefers-reduced-motion: reduce) {
+      .ac-bubble-in, .ac-card-in { animation: none; }
+    }
   </style>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900">

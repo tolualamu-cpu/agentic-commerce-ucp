@@ -150,6 +150,9 @@
   function append(role, text, opts) {
     const wrap = document.createElement("div");
     wrap.className = role === "user" ? "text-right" : "text-left";
+    // Live SSE bubbles fade+slide in once. Server-rendered history (built by
+    // Jinja in _chat_log.html) never calls append(), so reloads don't animate.
+    wrap.classList.add("ac-bubble-in");
     const bubble = document.createElement("div");
     bubble.className = role === "user"
       ? "inline-block bg-cyan-100 text-slate-900 px-4 py-2 " +
@@ -275,6 +278,12 @@
         if (html.trim()) {
           placeholder.innerHTML = html;
           _attachCardHandlers(placeholder);
+          // Staggered entrance: each card fades+slides in slightly after the
+          // previous one for a smooth cascade.
+          placeholder.querySelectorAll(".chat-product-card").forEach(function (card, i) {
+            card.style.animationDelay = (i * 140) + "ms";
+            card.classList.add("ac-card-in");
+          });
         } else {
           placeholder.remove();
         }
@@ -297,7 +306,7 @@
                  alt="" aria-hidden="true"
                  class="w-6 h-6 object-contain flex-shrink-0">`;
       const wrap = document.createElement("div");
-      wrap.className = "text-left my-1";
+      wrap.className = "text-left my-1 ac-bubble-in";
       wrap.innerHTML =
         `<div class="inline-flex items-center gap-2 bg-slate-50 border
                      border-slate-100 px-3 py-2 rounded-xl text-sm

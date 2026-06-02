@@ -25,6 +25,36 @@
       ],
       "signing_keys": [],
       "_note": "No UCP support; gateway falls back to ShopifyMCPAdapter"
+    },
+    "athletic-co.myshopify.com": {
+      "merchant_domain": "athletic-co.myshopify.com",
+      "capabilities": [],
+      "services": [],
+      "payment_handlers": [
+        {"id": "stripe", "name": "Stripe", "spec_url": "https://stripe.com/docs/api"}
+      ],
+      "signing_keys": [],
+      "_note": "Demo merchant — no UCP support yet; gateway uses ShopifyMCPAdapter. Stub present so discovery skips the live /.well-known/ucp fetch."
+    },
+    "audio-hub.myshopify.com": {
+      "merchant_domain": "audio-hub.myshopify.com",
+      "capabilities": [],
+      "services": [],
+      "payment_handlers": [
+        {"id": "stripe", "name": "Stripe", "spec_url": "https://stripe.com/docs/api"}
+      ],
+      "signing_keys": [],
+      "_note": "Demo merchant — no UCP support yet; gateway uses ShopifyMCPAdapter. Stub present so discovery skips the live /.well-known/ucp fetch."
+    },
+    "coffee-bar.myshopify.com": {
+      "merchant_domain": "coffee-bar.myshopify.com",
+      "capabilities": [],
+      "services": [],
+      "payment_handlers": [
+        {"id": "stripe", "name": "Stripe", "spec_url": "https://stripe.com/docs/api"}
+      ],
+      "signing_keys": [],
+      "_note": "Demo merchant — no UCP support yet; gateway uses ShopifyMCPAdapter. Stub present so discovery skips the live /.well-known/ucp fetch."
     }
   }
 }

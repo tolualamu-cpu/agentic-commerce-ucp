@@ -145,14 +145,21 @@
       <h1 id="chat-headline"
           data-typewriter="What are you shopping for?"
           class="text-3xl md:text-4xl font-semibold text-slate-900
-                 max-w-2xl mx-auto leading-tight"></h1>
+                 max-w-2xl mx-auto leading-tight"><span id="chat-headline-text"></span><span class="tw-caret" aria-hidden="true">|</span></h1>
       <script>
       (function () {
         var el = document.getElementById("chat-headline");
+        var out = document.getElementById("chat-headline-text");
+        var caret = el.querySelector(".tw-caret");
         var text = el.getAttribute("data-typewriter") || "";
         var i = 0;
         function tick() {
-          if (i <= text.length) { el.textContent = text.slice(0, i++); setTimeout(tick, 38); }
+          if (i <= text.length) {
+            out.textContent = text.slice(0, i++);
+            setTimeout(tick, 70);  // slower, calmer reveal (was 38ms)
+          } else if (caret) {
+            caret.classList.add("tw-caret-done");
+          }
         }
         tick();
       })();

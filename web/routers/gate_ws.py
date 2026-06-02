@@ -20,6 +20,7 @@ import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from web.routers.chat import _classify_gate_intent
 from web.session import (
     COOKIE_NAME,
     _serializer,
@@ -82,7 +83,24 @@ async def gate_ws(websocket: WebSocket):
             except Exception:
                 # Malformed JSON — treat as cancel so we don't stall the gate
                 msg = {"decision": "cancel"}
-            await provider.inbox.put(msg or {"decision": "cancel"})
+            msg = msg or {"decision": "cancel"}
+            # The gate modal's text field always sends decision="question"
+            # (the CONFIRM/CANCEL *buttons* send those decisions directly).
+            # A user who *types* "confirm" / "cancel" / "go ahead" must be
+            # routed the same way the chat-sidebar path is (chat.py:414):
+            # re-classify the free text so a typed "confirm" completes the
+            # purchase instead of being handed to the orchestrator as a
+            # question (which the model refuses, since confirm/cancel are
+            # runtime-handled). Genuine questions ("why this one?") fall
+            # through to {"decision": "question", ...} unchanged.
+            if (
+                isinstance(msg, dict)
+                and msg.get("decision") == "question"
+                and isinstance(msg.get("text"), str)
+                and msg["text"].strip()
+            ):
+                msg = _classify_gate_intent(msg["text"])
+            await provider.inbox.put(msg)
 
     try:
         out_task = asyncio.create_task(pump_out())

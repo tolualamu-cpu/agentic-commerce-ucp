@@ -22,6 +22,10 @@ from storage.db import DB, ProfileCacheQ
 
 DEFAULT_STUB_PATH = Path(__file__).resolve().parent.parent / "config" / "merchant_profiles.json"
 
+# Sentinel for a fresh "this domain has no UCP profile" tombstone in the cache.
+# Distinguishes a known-negative (skip the network) from a cache miss (resolve).
+_NEGATIVE = object()
+
 
 def _parse_dt(s: str) -> datetime:
     if s.endswith("Z"):
@@ -66,10 +70,18 @@ class UCPProfileDiscovery:
         return self._http
 
     async def try_discover(self, merchant_domain: str) -> UCPProfile | None:
-        """Returns a UCPProfile if available, None otherwise."""
+        """Returns a UCPProfile if available, None otherwise.
+
+        Caches both positive results AND negative ones (a tombstone): a domain
+        with no UCP profile pays the live-fetch cost at most once per TTL instead
+        of on every resolve. The TTL still applies to tombstones, so a merchant
+        that later publishes a profile is rediscovered after expiry.
+        """
         cached = self._read_cache(merchant_domain)
+        if cached is _NEGATIVE:
+            return None
         if cached is not None:
-            return cached
+            return cached  # fresh positive hit (UCPProfile)
 
         profile = await self._fetch_real(merchant_domain)
         if profile is None:
@@ -77,6 +89,8 @@ class UCPProfileDiscovery:
 
         if profile is not None:
             self._write_cache(profile)
+        else:
+            self._write_negative_cache(merchant_domain)
         return profile
 
     async def _fetch_real(self, merchant_domain: str) -> UCPProfile | None:
@@ -99,13 +113,16 @@ class UCPProfileDiscovery:
         clean = {k: v for k, v in stub.items() if not k.startswith("_")}
         return UCPProfile(**clean)
 
-    def _read_cache(self, merchant_domain: str) -> UCPProfile | None:
+    def _read_cache(self, merchant_domain: str):
+        """Return a fresh UCPProfile, the _NEGATIVE sentinel, or None (miss/stale)."""
         row = self.db.profile_cache.get(ProfileCacheQ.merchant_domain == merchant_domain)
         if not row:
             return None
         cached_at = _parse_dt(row["cached_at"])
         if datetime.now(timezone.utc) - cached_at > timedelta(seconds=self.ttl):
             return None
+        if row.get("negative"):
+            return _NEGATIVE
         try:
             return UCPProfile(**row["profile"])
         except Exception:
@@ -119,8 +136,22 @@ class UCPProfileDiscovery:
                 "merchant_domain": profile.merchant_domain,
                 "profile": profile_data,
                 "cached_at": now.isoformat(),
+                "negative": False,
             },
             ProfileCacheQ.merchant_domain == profile.merchant_domain,
+        )
+
+    def _write_negative_cache(self, merchant_domain: str) -> None:
+        """Tombstone a domain with no UCP profile so we don't re-fetch every resolve."""
+        now = datetime.now(timezone.utc)
+        self.db.profile_cache.upsert(
+            {
+                "merchant_domain": merchant_domain,
+                "profile": None,
+                "cached_at": now.isoformat(),
+                "negative": True,
+            },
+            ProfileCacheQ.merchant_domain == merchant_domain,
         )
 
     async def close(self) -> None:

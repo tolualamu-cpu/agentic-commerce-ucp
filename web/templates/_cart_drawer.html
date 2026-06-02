@@ -56,15 +56,28 @@
           = ${{ line.line_total }}
         </div>
       </div>
+      {# Quantity control. ``hx-trigger="submit, change"`` makes editing the
+         number (typing + blur, the spinner arrows, or the −/+ steppers
+         below) immediately re-post and re-render the drawer — the user no
+         longer has to find/click the ↻ button for the quantity and totals
+         to update. The ↻ button (and form submit) stay as a no-JS / Enter
+         fallback. #}
       <form hx-post="/cart/quantity/{{ line.merchant_domain }}/{{ line.product_id }}"
             hx-target="#cart-drawer" hx-swap="outerHTML"
+            hx-trigger="submit, change"
             action="/cart/quantity/{{ line.merchant_domain }}/{{ line.product_id }}"
             method="post" class="flex items-center gap-1">
+        <button type="button" aria-label="Decrease quantity"
+                onclick="var i=this.nextElementSibling;i.value=Math.max(0,(parseInt(i.value,10)||0)-1);i.dispatchEvent(new Event('change',{bubbles:true}))"
+                class="w-5 h-5 leading-none text-sm text-slate-600
+                       border rounded hover:bg-slate-100">−</button>
         <input type="number" name="quantity"
                value="{{ line.quantity }}" min="0"
-               class="w-14 px-1 py-0.5 text-xs border rounded" />
-        <button type="submit"
-                class="text-xs text-slate-700 hover:underline">↻</button>
+               class="w-14 px-1 py-0.5 text-xs border rounded text-center" />
+        <button type="button" aria-label="Increase quantity"
+                onclick="var i=this.previousElementSibling;i.value=(parseInt(i.value,10)||0)+1;i.dispatchEvent(new Event('change',{bubbles:true}))"
+                class="w-5 h-5 leading-none text-sm text-slate-600
+                       border rounded hover:bg-slate-100">+</button>
       </form>
       <form hx-post="/cart/remove/{{ line.merchant_domain }}/{{ line.product_id }}"
             hx-target="#cart-drawer" hx-swap="outerHTML"

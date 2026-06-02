@@ -218,3 +218,78 @@ class TestModalRender:
         assert 'id="gate-confirm"' in r.text
         assert 'id="gate-cancel"' in r.text
         assert 'id="gate-question"' in r.text
+
+
+class TestTypedGateIntentOverWS:
+    """Regression: typing 'confirm' / 'cancel' into the gate modal's text
+    field must complete / abort the purchase — not be handed to the
+    orchestrator as a free-text question.
+
+    The modal's text field always sends ``{"decision":"question",
+    "text":...}`` (only the CONFIRM/CANCEL *buttons* send those decisions
+    directly). The chat-sidebar path already re-classifies such text via
+    ``_classify_gate_intent`` (chat.py), but the WebSocket ``pump_in`` used
+    to pump the raw payload straight to the inbox — so a typed "confirm"
+    arrived as a question and the model refused it ("confirm/cancel are
+    handled automatically"). This gap had a unit test for the classifier
+    function but NO test exercising the WS wiring, which is how it slipped.
+
+    These tests assert the classification now happens on the WS path,
+    while genuine questions and basket edits still pass through unchanged.
+    """
+
+    def _session(self, client):
+        client.get("/")
+        sid = session_mod._serializer.loads(client.cookies.get("ac_session"))
+        return session_mod.get_session_by_id(sid)
+
+    def _roundtrip(self, client, payload):
+        """Send ``payload`` over /gate/ws, return what lands on the inbox."""
+        sess = self._session(client)
+        with client.websocket_connect("/gate/ws") as ws:
+            ws.send_json(payload)
+
+            async def pop():
+                return await asyncio.wait_for(sess.gate_provider.inbox.get(), timeout=2.0)
+
+            return asyncio.run(pop())
+
+    def test_typed_confirm_resolves_to_confirm(self, client):
+        msg = self._roundtrip(client, {"decision": "question", "text": "confirm"})
+        assert msg["decision"] == "confirm"
+
+    def test_typed_confirm_phrase_resolves_to_confirm(self, client):
+        msg = self._roundtrip(client, {"decision": "question", "text": "yes go ahead"})
+        assert msg["decision"] == "confirm"
+
+    def test_typed_cancel_resolves_to_cancel(self, client):
+        msg = self._roundtrip(client, {"decision": "question", "text": "cancel"})
+        assert msg["decision"] == "cancel"
+
+    def test_typed_standalone_no_resolves_to_cancel(self, client):
+        msg = self._roundtrip(client, {"decision": "question", "text": "no"})
+        assert msg["decision"] == "cancel"
+
+    def test_genuine_question_stays_question(self, client):
+        msg = self._roundtrip(
+            client, {"decision": "question", "text": "why did you pick this one?"}
+        )
+        assert msg["decision"] == "question"
+        assert msg["text"] == "why did you pick this one?"
+
+    def test_basket_edit_stays_question(self, client):
+        # Basket edits must NOT be swallowed as confirm/cancel — they go to
+        # the orchestrator's gate Q&A loop as questions.
+        msg = self._roundtrip(client, {"decision": "question", "text": "add 1 more"})
+        assert msg["decision"] == "question"
+        assert msg["text"] == "add 1 more"
+
+    def test_explicit_confirm_button_unchanged(self, client):
+        # The CONFIRM button sends decision=confirm directly (no text) — must
+        # pass through untouched.
+        msg = self._roundtrip(client, {"decision": "confirm"})
+        assert msg["decision"] == "confirm"
+
+    def test_explicit_cancel_button_unchanged(self, client):
+        msg = self._roundtrip(client, {"decision": "cancel"})
+        assert msg["decision"] == "cancel"

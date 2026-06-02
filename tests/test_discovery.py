@@ -117,3 +117,23 @@ def test_cache_hit_skips_fetch(tmp_db, stub_path):
     loop.run_until_complete(discovery.try_discover("live.example"))
     loop.run_until_complete(discovery.try_discover("live.example"))
     assert call_count["n"] == 1
+
+
+def test_negative_result_cached_skips_refetch(tmp_db, stub_path):
+    """A domain with no profile (real 404 + no stub) is tombstoned, so a second
+    try_discover does NOT fire a second live fetch. This is the fix for the
+    per-request /.well-known/ucp stall on unstubbed demo merchants."""
+    call_count = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        call_count["n"] += 1
+        return httpx.Response(404)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    discovery = UCPProfileDiscovery(tmp_db, http_client=client, stub_path=stub_path, ttl_seconds=60)
+    loop = asyncio.get_event_loop()
+    first = loop.run_until_complete(discovery.try_discover("no-ucp.example"))
+    second = loop.run_until_complete(discovery.try_discover("no-ucp.example"))
+    assert first is None
+    assert second is None
+    assert call_count["n"] == 1  # second resolve served from the negative cache

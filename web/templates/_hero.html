@@ -12,20 +12,49 @@
    starts, preventing layout shift as text wraps from 1 → 2 lines.
    text-3xl  2 lines ≈ 2 × 1.875rem × 1.25 = 4.69rem  → min-h-[5rem]
    text-5xl  2 lines ≈ 2 × 3rem    × 1.25 = 7.5rem   → md:min-h-[7.5rem]
-   The 1-inch page offset lives on the wrapper in home.html (not here). #}
+   max-w-4xl (not 3xl) + text-wrap:balance keeps the headline to exactly two
+   balanced lines at text-5xl — max-w-3xl was too narrow and spilled to a
+   third line. The 1-inch page offset lives on the wrapper in home.html. #}
 <section id="hero" class="text-center pt-10 pb-8 px-4">
+  {# No text-wrap:balance: during the typewriter reveal it re-balances the
+     line split on every keystroke, so early text lands on a phantom second
+     line and then jumps up — inconsistent motion. Plain top-down wrapping
+     fills line 1 first then overflows to line 2 monotonically. max-w-4xl
+     still caps the finished phrase at exactly two lines. #}
   <h1 id="hero-headline"
       data-typewriter="Carto finds, compares, and buys from your favorite brands"
-      class="text-3xl md:text-5xl font-semibold text-slate-900
-             max-w-3xl mx-auto leading-tight
-             min-h-[5rem] md:min-h-[7.5rem]"></h1>
+      class="text-2xl sm:text-4xl md:text-5xl font-semibold text-slate-900
+             max-w-4xl mx-auto leading-tight
+             min-h-[5rem] md:min-h-[7.5rem]"><span id="hero-text"></span><span class="tw-caret" aria-hidden="true">|</span></h1>
   <script>
   (function () {
     var el = document.getElementById("hero-headline");
+    var out = document.getElementById("hero-text");
+    var caret = el.querySelector(".tw-caret");
     var text = el.getAttribute("data-typewriter") || "";
+    // Render the leading brand word ("Carto") in Pacifico — matching the
+    // nav-bar logo — while the rest of the headline keeps the h1 serif.
+    var brandLen = (text.split(" ")[0] || "").length;
+    function esc(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function render(n) {
+      var shown = text.slice(0, n);
+      var brand = shown.slice(0, brandLen);
+      var rest = shown.slice(brandLen);
+      return (
+        '<span style="font-family:\'Pacifico\',cursive">' + esc(brand) + "</span>" +
+        esc(rest)
+      );
+    }
     var i = 0;
     function tick() {
-      if (i <= text.length) { el.textContent = text.slice(0, i++); setTimeout(tick, 38); }
+      if (i <= text.length) {
+        out.innerHTML = render(i++);
+        setTimeout(tick, 70);  // slower, calmer reveal (was 38ms)
+      } else if (caret) {
+        caret.classList.add("tw-caret-done");
+      }
     }
     tick();
   })();

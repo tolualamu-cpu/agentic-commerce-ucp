@@ -272,7 +272,9 @@ async def change_quantity(
     except asyncio.QueueFull:  # pragma: no cover
         pass
     _push_cart_update(sess)
-    return _render_drawer(request, sess, flash=f"Updated: {item_name} → {quantity}")
+    # No flash on quantity changes — the updated count + totals render live in
+    # the drawer itself, so the "Updated: … → N" banner was redundant noise.
+    return _render_drawer(request, sess)
 
 
 # ─── POST /cart/clear ────────────────────────────────────────────────────

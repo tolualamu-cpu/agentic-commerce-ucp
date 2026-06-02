@@ -157,6 +157,67 @@ class TestViewCart:
         assert data["item_count"] == 1
 
 
+class TestQuantityControlLiveUpdate:
+    """Regression: on the /cart page, increasing an item's count must update
+    the displayed quantity and totals.
+
+    The drawer quantity control previously only re-posted on an explicit ↻
+    click, and the /cart page header carried a *duplicate* item-count +
+    subtotal summary OUTSIDE the swapped ``#cart-drawer`` — so it went stale
+    after a quantity change. The fix: the quantity form auto-submits on
+    ``change`` (typing/blur, spinner arrows, or the −/+ steppers), and the
+    redundant outer summary was removed so the only count/subtotal shown
+    live inside the drawer and always refresh on swap.
+    """
+
+    def _drawer_html(self, client):
+        client.get("/")
+        client.post("/cart/add/coffee-bar.myshopify.com/cof_001")
+        return client.get("/cart").text
+
+    def test_quantity_form_auto_submits_on_change(self, client):
+        html = self._drawer_html(client)
+        # The quantity form must fire on change (not only on the ↻ click) so
+        # editing the number immediately re-renders quantity + totals.
+        assert 'hx-trigger="submit, change"' in html
+
+    def test_quantity_form_targets_drawer_with_outerhtml(self, client):
+        html = self._drawer_html(client)
+        assert 'hx-target="#cart-drawer"' in html
+        assert 'hx-swap="outerHTML"' in html
+
+    def test_stepper_buttons_present(self, client):
+        html = self._drawer_html(client)
+        assert 'aria-label="Increase quantity"' in html
+        assert 'aria-label="Decrease quantity"' in html
+
+    def test_no_stale_duplicate_summary_outside_drawer(self, client):
+        """The cart page header must NOT carry its own count/subtotal line —
+        that markup lived outside #cart-drawer and went stale on swap."""
+        html = self._drawer_html(client)
+        head, _, drawer = html.partition('id="cart-drawer"')
+        # The page <h1> title lives before the drawer; the stale "· subtotal"
+        # summary must not appear in that pre-drawer region.
+        assert "Your cart" in head
+        assert "subtotal" not in head.lower()
+
+    def test_drawer_carries_live_count_and_subtotal(self, client):
+        """Count + subtotal still render — inside the drawer, where they
+        refresh together with the line items on every swap."""
+        client.get("/")
+        client.post("/cart/add/coffee-bar.myshopify.com/cof_001")
+        # Bump to qty 3 via the same endpoint the auto-submit fires.
+        r = client.post(
+            "/cart/quantity/coffee-bar.myshopify.com/cof_001",
+            data={"quantity": "3"},
+            headers={"HX-Request": "true"},
+        )
+        assert r.status_code == 200
+        # Fresh drawer fragment must show the updated qty + totals.
+        assert "× 3" in r.text or "&#215; 3" in r.text
+        assert "42.00" in r.text  # 14.00 * 3 line_total + subtotal
+
+
 class TestSessionIsolation:
     def test_two_clients_have_independent_carts(self, tmp_path, monkeypatch):
         monkeypatch.setenv("DB_PATH", str(tmp_path / "demo.json"))

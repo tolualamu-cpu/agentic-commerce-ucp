@@ -34,8 +34,10 @@ class _SerialisingStorage(JSONStorage):
     """TinyDB storage that handles Decimal + datetime."""
 
     def write(self, data):
+        # No indent: smaller payload + faster serialize on every write. The
+        # file is machine-read only (no test inspects its raw formatting).
         with open(self._handle.name, "w") as f:
-            json.dump(data, f, default=_json_default, indent=2)
+            json.dump(data, f, default=_json_default)
 
 
 class DB:

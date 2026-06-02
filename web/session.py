@@ -154,11 +154,16 @@ def _make_session(session_id: str) -> WebSession:
             domain,
             StubShopifyTransport(seed_products=seed),
         )
-    discovery = UCPProfileDiscovery(db)
+    # Longer cache TTLs for the demo: merchant profiles are static stubs, so
+    # there's no benefit to the spec-default 60s re-discovery cadence. This keeps
+    # the resolved client warm and avoids re-running discovery mid-session.
+    # (The library/CLI default stays 60s in config.settings.)
+    discovery = UCPProfileDiscovery(db, ttl_seconds=600)
     gateway = MerchantGateway(
         discovery=discovery,
         signer=signer,
         direct_adapters=direct_adapters,
+        cache_ttl=600,
     )
     stripe = StripeAdapter(api_key=os.getenv("STRIPE_TEST_KEY") or None)
     ctx = ToolContext(

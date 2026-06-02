@@ -16,14 +16,12 @@
      lets the listener detect whether the cart shrank (purchase went
      through) vs. stayed the same (cancelled / question). #}
   <div id="cart-content" data-item-count="{{ cart.item_count or 0 }}">
-    <header class="mb-5 flex items-baseline justify-between">
+    {# Title only. The live item-count + subtotal live INSIDE the cart
+       drawer (its header shows "(N items)" and its footer the subtotal),
+       so they always refresh together when a quantity change swaps
+       #cart-drawer. A duplicate summary here would go stale on swap. #}
+    <header class="mb-5">
       <h1 class="text-2xl font-semibold text-slate-900">Your cart</h1>
-      {% if cart.item_count and cart.item_count > 0 %}
-      <p class="text-sm text-slate-500">
-        {{ cart.item_count }} item{{ '' if cart.item_count == 1 else 's' }}
-        · subtotal ${{ cart.subtotal }}
-      </p>
-      {% endif %}
     </header>
 
     {% include "_cart_drawer.html" %}

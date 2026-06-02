@@ -111,23 +111,43 @@ def create_app() -> FastAPI:
     # today's spend so every page can render the Carto daily-limit widget
     # in the navbar without requiring individual routers to pass context.
     def mandate_info(request):
+        # Per-request memoized: a single page render references this global
+        # from several partials (navbar widget, gate modal, etc.). The
+        # underlying ap2._compute_spend scans spend_records, so without the
+        # cache we'd re-scan the DB N times per page. Cache lives on
+        # request.state and is never shared across requests, so spend always
+        # reflects the current state at render time.
+        _state = getattr(request, "state", None)
+        cached = getattr(_state, "_mandate_info_cache", None) if _state is not None else None
+        if cached is not None:
+            return cached
         try:
             from datetime import datetime, timezone
             from web.session import get_session_id_from_request, get_session_by_id
 
             sid = get_session_id_from_request(request)
             if not sid:
-                return {}
-            sess = get_session_by_id(sid)
-            if sess is None:
-                return {}
-            mandate = sess.ctx.ap2.get_mandate(sess.mandate_id)
-            if mandate is None:
-                return {}
-            spent_day, _ = sess.ctx.ap2._compute_spend(sess.mandate_id, datetime.now(timezone.utc))
-            return {"mandate": mandate, "spent_today": str(spent_day)}
+                result = {}
+            else:
+                sess = get_session_by_id(sid)
+                if sess is None:
+                    result = {}
+                else:
+                    mandate = sess.ctx.ap2.get_mandate(sess.mandate_id)
+                    if mandate is None:
+                        result = {}
+                    else:
+                        spent_day, _ = sess.ctx.ap2._compute_spend(
+                            sess.mandate_id, datetime.now(timezone.utc)
+                        )
+                        result = {"mandate": mandate, "spent_today": str(spent_day)}
         except Exception:  # noqa: BLE001 — never break a page render
-            return {}
+            result = {}
+        try:
+            request.state._mandate_info_cache = result
+        except Exception:  # noqa: BLE001 — state may be unavailable in odd contexts
+            pass
+        return result
 
     templates.env.globals["mandate_info"] = mandate_info
 
