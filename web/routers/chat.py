@@ -503,6 +503,7 @@ async def _run_orchestrator(sess: WebSession, text: str) -> None:
             # no tool_use blocks are pending, eliminating the race condition
             # where a cart click appended a user message between tool_use
             # and tool_result.
+            emitted_products = False
             discovered = sess.ctx.session.last_discovered_products
             products_after = _product_id_set(discovered)
             if discovered and products_after != products_before:
@@ -527,6 +528,38 @@ async def _run_orchestrator(sess: WebSession, text: str) -> None:
                         "products": product_dicts,
                     }
                 )
+                emitted_products = True
+
+            # Drain any cards the agent explicitly asked the UI to re-render
+            # via the ``show_product_cards`` tool (e.g. "show me that card
+            # again"). This is meant for re-show turns where discovery did NOT
+            # run. If discovery DID run this turn (set-change block above
+            # already emitted), the model may *also* have called
+            # show_product_cards on the same freshly-discovered set — emitting
+            # again here would duplicate the cards in the UI. So we only drain
+            # when discovery did not already emit. Either way we clear the
+            # staged list so it can never bleed into the next turn.
+            to_show = sess.ctx.session.cards_to_show
+            if to_show and not emitted_products:
+                show_dicts = [
+                    p if isinstance(p, dict) else p.model_dump(mode="json") for p in to_show
+                ]
+                show_dicts = await _enrich_products_with_images(sess.ctx, show_dicts)
+                await sess.sse_queue.put(
+                    {
+                        "type": "products",
+                        "data": {"products": show_dicts},
+                    }
+                )
+                sess.ctx.session.product_card_sets.append(
+                    {
+                        "turn_count": len(sess.ctx.session.conversation),
+                        "products": show_dicts,
+                    }
+                )
+            # Always clear — whether we emitted, or skipped because discovery
+            # already showed these cards this turn.
+            sess.ctx.session.cards_to_show = []
 
             reply = ""
             if isinstance(result, dict):

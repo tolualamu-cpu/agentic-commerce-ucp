@@ -225,6 +225,32 @@ class OrchestratorAgent(BaseAgent):
                 handler=self._get_last_discovered,
                 takes_context=True,
             ),
+            ToolSpec(
+                name="show_product_cards",
+                description=(
+                    "Re-render product cards in the chat UI for products the "
+                    "user has already seen, WITHOUT re-running discovery. Use "
+                    "this whenever the user asks to see, show, display, or "
+                    "'pull up' a product card again (by name, by number, or "
+                    "'show me that one' / 'show the cards again'). The UI draws "
+                    "the cards from this tool — you must NOT describe the "
+                    "products or print any product data as prose. Optional "
+                    "product_ids (list[str]): the specific products to show; "
+                    "omit to re-show all of the most recent results. Returns "
+                    "only a status count — never product data."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "product_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                },
+                handler=self._show_product_cards,
+                takes_context=True,
+            ),
             make_tool_spec(
                 name="get_active_mandate_summary",
                 description=(
@@ -336,6 +362,27 @@ class OrchestratorAgent(BaseAgent):
         """Return the most recent discovery cache, no re-search."""
         products = ctx.session.last_discovered_products or []
         return {"products": products, "count": len(products), "source": "session_cache"}
+
+    async def _show_product_cards(
+        self, ctx: ToolContext, *, product_ids: list[str] | None = None
+    ) -> dict:
+        """Queue already-discovered products for the UI to (re-)render as cards.
+
+        Selects from ``ctx.session.last_discovered_products`` (no re-search) and
+        stashes the matches on ``ctx.session.cards_to_show`` for the web layer to
+        drain into a ``products`` SSE event. Returns ONLY a minimal status — never
+        the product data — so the model has nothing to echo as prose.
+        """
+        cached = ctx.session.last_discovered_products or []
+        if product_ids:
+            wanted = set(product_ids)
+            selected = [
+                p for p in cached if str(p.get("product_id") or p.get("id") or "") in wanted
+            ]
+        else:
+            selected = list(cached)
+        ctx.session.cards_to_show = selected
+        return {"status": "cards_rendered", "shown": len(selected)}
 
     async def _add_to_cart(
         self,

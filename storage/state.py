@@ -29,6 +29,13 @@ class SessionState:
     # at the time they were emitted. Used to re-render cards on page reload.
     # Each entry: {"turn_count": int, "products": list[dict]}
     product_card_sets: list[dict[str, Any]] = field(default_factory=list)
+    # Products the agent has explicitly asked the UI to (re-)render as cards
+    # via the ``show_product_cards`` tool — WITHOUT re-running discovery.
+    # Drained by the web layer (chat.py) after each run: it emits a
+    # ``products`` SSE event and then clears this list. Keeping it separate
+    # from ``last_discovered_products`` means a re-show turn never mutates
+    # the discovery cache or triggers a search.
+    cards_to_show: list[dict[str, Any]] = field(default_factory=list)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def append_user(self, content: str) -> None:
