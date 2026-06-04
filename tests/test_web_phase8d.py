@@ -1,9 +1,13 @@
-"""Phase 8d — Empty /chat reload + duplicate-bubble race fix + tone rule.
+"""Phase 8d — Empty /chat transition + duplicate-bubble race fix + tone rule.
 
 Tests three behaviours added in Phase 8d:
-  1. Empty /chat form carries the reload-after-request handler so a
-     POST + 202 transitions the page to active state with the new turn
-     visible. Active /chat does NOT carry that handler (SSE streams).
+  1. Empty /chat form transitions to the active state IN PLACE (no full
+     reload) via window.__chatRevealActive() so the single, already-open
+     /chat/stream EventSource keeps streaming the reply. (Superseded the
+     old reload-after-request handler, which tore the connection down and
+     let the dying connection drain the burst — the "chat doesn't
+     populate until I flip pages" bug.) Active /chat carries neither
+     handler (SSE streams into the already-visible log).
   2. The chat-page SSE template wires the right dedup state for both
      the partial ([user]) and full ([user, agent]) server-render cases.
   3. The orchestrator's system prompt forbids the "Here they are again"
@@ -33,16 +37,29 @@ def _sess(client) -> "session_mod.WebSession":
 
 
 RELOAD_SNIPPET = "window.location.href = '/chat'"
+REVEAL_SNIPPET = "window.__chatRevealActive"
 
 
 class TestEmptyChatFormReload:
-    def test_empty_chat_form_has_reload_handler(self, client):
+    def test_empty_chat_form_transitions_in_place(self, client):
         # Direct visit, no prior conversation
         r = client.get("/chat")
         assert r.status_code == 200
-        # The form's hx-on::after-request should navigate to /chat
-        # after a successful POST.
-        assert RELOAD_SNIPPET in r.text, "empty-state form must carry reload-after-request handler"
+        # The form's hx-on::after-request must reveal the chat-log IN
+        # PLACE (no reload) so the single /chat/stream EventSource stays
+        # alive and streams the reply. The old full-reload handler is the
+        # regression that dropped the orchestrator burst during the
+        # unload gap, so it must NOT be present on the empty page.
+        assert REVEAL_SNIPPET in r.text, (
+            "empty-state form must transition in place via __chatRevealActive"
+        )
+        assert RELOAD_SNIPPET not in r.text, (
+            "empty-state form must NOT full-reload (that drops the SSE burst)"
+        )
+        # The reveal helper must actually un-hide the log and drop the hero.
+        assert 'id="chat-empty-hero"' in r.text
+        assert 'id="chat-headline-wrap"' in r.text
+        assert 'id="chat-suggestion-chips"' in r.text
         # And the form id is still chat-form (so chips work)
         assert 'id="chat-form"' in r.text
 

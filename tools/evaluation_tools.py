@@ -83,6 +83,13 @@ async def rank_products(
     """Rank products by the weighted composite score. Sorted best → worst."""
     if not products:
         return []
+    # Coerce dicts → ProductResult. Agents dispatch this tool with JSON dicts
+    # (the LLM can't pass model instances), while direct Python callers pass
+    # ProductResult objects. Coercing here makes the deterministic scorer the
+    # single source of truth for ranking on BOTH paths.
+    products = [
+        p if isinstance(p, ProductResult) else ProductResult.model_validate(p) for p in products
+    ]
     user = user or ctx.user
     prices = [p.price for p in products if p.in_stock]
     if not prices:
@@ -116,6 +123,28 @@ async def rank_products(
     for i, r in enumerate(ranked, start=1):
         r.rank = i
     return ranked
+
+
+def template_rationale(ranked: list[RankedProduct]) -> str:
+    """Deterministic one-sentence rationale for the top ranked pick.
+
+    Internal hint only — never shown to the user. The orchestrator's Sonnet
+    summary writes the user-facing prose; this just gives it a factual anchor
+    (top pick, composite score, any risk flags) so removing the Haiku rationale
+    turn costs nothing user-visible. Uses only ``RankedProduct`` fields so it
+    needs no scoring recomputation or user profile.
+    """
+    if not ranked:
+        return "No products available to rank."
+    top = ranked[0]
+    sentence = (
+        f"{top.product.name} ranks highest by the weighted composite score "
+        f"({top.score:.2f}"
+        f"{f' of {len(ranked)} candidates' if len(ranked) > 1 else ''})."
+    )
+    if top.risk_flags:
+        sentence += " Flags: " + ", ".join(top.risk_flags) + "."
+    return sentence
 
 
 async def fetch_reviews(

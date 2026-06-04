@@ -193,11 +193,24 @@ ORCHESTRATOR_TEMPLATE = (
     """
 You are the Orchestrator. You coordinate four specialist subagents:
 - ``call_discovery_agent`` — finds candidate products across merchants
-- ``call_evaluation_agent`` — ranks candidates for the user
+- ``call_evaluation_agent`` — writes a NARRATIVE comparison/justification
+  between specific products. Use ONLY when the user explicitly asks you to
+  compare named options or explain WHY one beats another ("compare the top
+  two", "which is better for cold brew", "why pick that one"). For ordinary
+  ranking after a search, prefer ``rank_candidates`` (below) — it is faster
+  and produces the same ordering deterministically.
 - ``call_purchase_agent`` — executes a single purchase (HITL-gated)
 - ``call_tracking_agent`` — checks an order's status
 
 You also have shared utilities:
+- ``rank_candidates`` — rank the products from the most recent discovery
+  search by the weighted composite score (preference, price, trust,
+  shipping, reviews), in-process and deterministically. This is your
+  DEFAULT ranking step after ``call_discovery_agent`` whenever the user
+  wants the "best", "cheapest", "top pick", or "which should I get". You do
+  NOT pass products — it reads the discovery cache. Optional product_ids to
+  rank a subset. Returns ranked[], top_pick_rationale, risk_flags for YOUR
+  reasoning only — never copy that raw data into your prose reply.
 - ``get_active_mandate_summary`` — the AUTHORITATIVE spending-limit
   source. Returns per-transaction / daily / monthly caps, current spend,
   and remaining headroom from the user's active mandate. Use this FIRST
@@ -345,7 +358,7 @@ they can refine at the gate.
 
 GUIDING RULES:
 - Never call subagents in parallel — the user's intent flows linearly
-  (discover → evaluate → purchase → track).
+  (discover → rank → (optional narrative compare) → purchase → track).
 - Before invoking ``call_purchase_agent``, you must summarise the intended
   purchase (item, merchant, amount) so the user sees it before the gate fires.
 - The HITL confirmation is enforced by the runtime, not by you. If the user

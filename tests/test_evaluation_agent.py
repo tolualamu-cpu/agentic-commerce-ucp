@@ -22,23 +22,28 @@ def _product(name: str, price: str) -> dict:
 
 
 def test_invokes_rank_products_and_returns_ranked_list(tool_ctx):
+    """rank_products is terminal: the agent returns the deterministic ranking
+    after ONE create() call, skipping the redundant reformat turn (Lever 2)."""
     products = [_product("Shoe A", "50"), _product("Shoe B", "200")]
+    # Only the tool_use turn is scripted. No second text turn is needed —
+    # the terminal fast-path returns rank_products' deterministic output.
     client = FakeAnthropicClient(
         [
             tool_use_response(("rank_products", {"products": products})),
-            text_response(
-                '{"ranked": [{"product": {"product_id": "Shoe A", "name": "Shoe A",'
-                '"price": "50", "merchant": "m", "merchant_domain": "m.com"},'
-                '"score": 0.85, "rank": 1, "risk_flags": []}],'
-                '"top_pick_rationale": "lowest price",'
-                '"risk_flags": []}'
-            ),
         ]
     )
     agent = EvaluationAgent(client)
     result = asyncio.get_event_loop().run_until_complete(agent.run(tool_ctx, "Rank these"))
-    assert "rank_products" in client.dispatched_tool_names()
-    assert result["top_pick_rationale"] == "lowest price"
+    # Fast-path engaged: exactly one model round-trip (no reformat turn). The
+    # tool_use assistant turn is appended AFTER this single create() snapshot,
+    # so we prove the tool ran via its deterministic output, not call records.
+    assert len(client.calls) == 1
+    # Deterministic ranking: cheaper Shoe A wins on the price-weighted score.
+    assert [r["product"]["product_id"] for r in result["ranked"]] == ["Shoe A", "Shoe B"]
+    assert result["ranked"][0]["rank"] == 1
+    # Rationale is deterministically templated (internal hint, never shown).
+    assert "Shoe A" in result["top_pick_rationale"]
+    assert result["risk_flags"] == []
 
 
 def test_advertises_full_tool_set(tool_ctx):

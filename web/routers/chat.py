@@ -91,6 +91,7 @@ from fastapi.responses import (
 from tools.shared_tools import audit_log
 from web.callbacks import build_web_callbacks
 from web.session import WebSession, get_or_create_session
+from web.stream_takeover import KEEPALIVE, stream_until_superseded
 
 
 def _cart_key(merchant_domain: str, product_id: str) -> str:
@@ -425,6 +426,31 @@ async def post_chat(
             status_code=202,
         )
 
+    # Persist the user turn into the conversation SYNCHRONOUSLY, before we
+    # return 202 and the empty-state form navigates to /chat.
+    #
+    # Why this matters (the "flicker" bug): the empty /chat hero hides the
+    # chat-log and navigates to /chat after a successful POST so the page
+    # re-renders in the active (streaming) state. But the orchestrator runs
+    # in a BACKGROUND task and only appends the user turn once
+    # ``BaseAgent.run`` executes inside it — which is AFTER this handler has
+    # already returned and the browser has already navigated. The GET /chat
+    # therefore raced an empty ``session.conversation`` and re-rendered the
+    # EMPTY hero, while the streamed reply landed in a hidden #chat-log
+    # (invisible). The user saw nothing happen, re-submitted, and the page
+    # flickered through repeated reloads.
+    #
+    # Appending here means the post-navigation GET /chat sees a non-empty
+    # history and renders the ACTIVE state (user bubble visible, #chat-log
+    # visible), so the SSE reply streams into a visible log. This is exactly
+    # the "PARTIAL" dedup case the chat SSE handler was built for: the user
+    # turn is already in the server-rendered history, the queued "user" SSE
+    # event is de-duplicated, and only the agent reply renders live.
+    #
+    # ``BaseAgent.run`` guards against re-appending this identical last turn,
+    # so the model's context is not duplicated.
+    sess.ctx.session.conversation.append({"role": "user", "content": text})
+
     # Wire the orchestrator's callbacks to push deltas onto this session's
     # SSE queue. Safe to overwrite each turn — only one run() at a time
     # thanks to ``orchestrator_lock``.
@@ -584,25 +610,83 @@ async def _run_orchestrator(sess: WebSession, text: str) -> None:
             await sess.sse_queue.put({"type": "done", "data": {}})
 
 
+# Re-exported sentinel: yielded when the queue idles past the heartbeat
+# timeout. The endpoint maps it to an SSE keepalive comment. Aliased from the
+# shared takeover module so existing imports of ``chat._KEEPALIVE`` keep
+# working and identity comparisons hold.
+_KEEPALIVE = KEEPALIVE
+
+
+async def _session_sse_events(sess, superseded, is_disconnected, *, timeout: float = 15.0):
+    """Yield queued SSE events for ONE ``/chat/stream`` connection.
+
+    Thin wrapper over the shared ``stream_until_superseded`` takeover primitive
+    (see ``web.stream_takeover``): each connection claims a generation via
+    ``sess.new_stream_generation()`` and stops consuming the instant a newer
+    connection supersedes it, so the navigating-away page can never steal the
+    orchestrator's ``products``/``text``/``done`` burst from the active page.
+
+    Yields either an event ``dict`` or the ``_KEEPALIVE`` sentinel (idle
+    timeout). ``timeout`` is parameterised for tests; production uses 15s so
+    proxies don't drop an idle connection.
+    """
+    async for item in stream_until_superseded(
+        sess.sse_queue, superseded, timeout=timeout, is_disconnected=is_disconnected
+    ):
+        yield item
+
+
+def _cart_item_count(sess) -> int:
+    """Absolute number of items in the session's click-basket.
+
+    Single source of truth for the SSE badge resync. Mirrors the count the
+    cart router computes in ``_cart_summary`` (sum of line quantities) but
+    without importing the cart module (avoids a router import cycle).
+    """
+    return sum(
+        int(i.get("quantity", 0))
+        for items in getattr(sess, "click_basket", {}).values()
+        for i in items
+    )
+
+
+def _cart_resync_event(sess) -> "dict | None":
+    """The ``cart_update`` frame ``/chat/stream`` leads every (re)connect with,
+    so the header badge converges to the correct absolute count on any page
+    load / navigation / reconnect. ``None`` only if the count can't be read
+    (best-effort — never break the stream)."""
+    try:
+        return {"type": "cart_update", "data": {"count": _cart_item_count(sess)}}
+    except Exception:  # noqa: BLE001 — badge resync is best-effort
+        return None
+
+
 @router.get("/chat/stream")
 async def chat_stream(request: Request, sess: WebSession = Depends(get_or_create_session)):
     """SSE endpoint that drains the session's queue.
 
     Emits one ``data:`` line per event with a JSON-encoded payload.
     The client (htmx/sse.js or raw EventSource) decodes and dispatches
-    by ``type``.
+    by ``type``. Claims a stream generation so a newer connection for the
+    same session cleanly supersedes this one (see ``_session_sse_events``).
     """
+    _my_gen, superseded = sess.new_stream_generation()
 
     async def event_gen():
-        while True:
-            if await request.is_disconnected():
-                return
-            try:
-                evt = await asyncio.wait_for(sess.sse_queue.get(), timeout=15.0)
-            except asyncio.TimeoutError:
+        # SELF-HEALING badge resync: the first frame on every (re)connect is the
+        # current absolute cart count. The header badge therefore converges to
+        # correct on every page load / navigation / SSE reconnect, even if a
+        # live ``cart_update`` frame was missed earlier. Pairs with the
+        # optimistic ``__bumpCart`` on the cards so the badge is both instant
+        # and eventually-consistent. Best-effort: never block the stream.
+        resync = _cart_resync_event(sess)
+        if resync is not None:
+            yield f"data: {json.dumps(resync)}\n\n"
+        async for item in _session_sse_events(sess, superseded, request.is_disconnected):
+            if item is _KEEPALIVE:
                 # Heartbeat keeps proxies from closing the connection
                 yield ": keepalive\n\n"
-                continue
-            yield f"data: {json.dumps(evt)}\n\n"
+            else:
+                yield f"data: {json.dumps(item)}\n\n"
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

@@ -77,6 +77,26 @@
 
   let currentAgentBubble = null;
 
+  // ── Cards-before-text gate ───────────────────────────────────────
+  // The `products` event reserves a placeholder synchronously, then fills
+  // it via an async fetch to /chat/products-fragment. The `text` summary
+  // event arrives immediately AFTER `products` in the stream, but the
+  // fetch hasn't resolved yet — so without gating, the text bubble paints
+  // first at the (still-empty, zero-height) placeholder position and the
+  // cards then pop in ABOVE it a beat later, producing the "text appears
+  // before cards, then jumps" flicker.
+  //
+  // Fix: serialise text rendering behind any in-flight card fetch. Each
+  // `products` event extends this promise; each `text` delta waits on it
+  // before appending its bubble. Once no fetch is pending the promise is
+  // already resolved, so streamed deltas (gate Q&A, no cards) append on
+  // the next microtask — no perceptible delay. Ordering across deltas is
+  // preserved because handlers register their `.then()` in event order.
+  let _cardFetchGate = Promise.resolve();
+  function _afterCards(fn) {
+    _cardFetchGate = _cardFetchGate.then(fn, fn);
+  }
+
   // ── Chat product card interactions ────────────────────────────────
   // Called after injecting product cards fetched from /chat/products-fragment.
   // Wires add/remove cart toggle and double-click navigation on each card.
@@ -97,11 +117,21 @@
       if (!btn) return;
 
       btn.addEventListener("click", function () {
+        // Re-entrancy guard: if this physical button somehow has more than one
+        // click listener bound (a double _attachCardHandlers pass), only the
+        // FIRST click starts a request; the rest bail. This makes a double
+        // add (the "badge says 2 / duplicate notification" bug) impossible
+        // even if binding is duplicated.
+        if (btn.dataset.pending === "1") return;
+        btn.dataset.pending = "1";
         const action = inCart ? "remove" : "add";
         const url    = "/cart/" + action + "/" + merchant + "/" + productId;
-        fetch(url, {method: "POST", headers: {"HX-Request": "true"}})
-          .then(function (r) {
-            if (!r.ok) return;
+        // Ask for JSON so we get the authoritative ABSOLUTE item_count back.
+        fetch(url, {method: "POST", headers: {"Accept": "application/json"}})
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            btn.dataset.pending = "";
+            if (!data) return;
             inCart = !inCart;
             card.dataset.inCart = inCart ? "true" : "false";
             if (inCart) {
@@ -115,9 +145,17 @@
                 .replace("bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-red-50 hover:text-red-700 hover:border-red-200",
                          "bg-slate-900 text-white hover:bg-slate-700");
             }
-            // Badge and toast are handled by the server-pushed `click` SSE
-            // event and `cart_update` SSE event — no duplicate calls here.
-          });
+            // Set the badge to the server's ABSOLUTE count from THIS response.
+            // Absolute (not relative) means the badge can never drift or
+            // double-count no matter how many cart_update frames also arrive —
+            // it always equals the cart's true item total. (Replaced the old
+            // relative __bumpCart, which could show "2" while the cart held 1
+            // until a page navigation forced a resync.)
+            if (typeof data.item_count === "number") {
+              window.__setCartBadge(data.item_count);
+            }
+          })
+          .catch(function () { btn.dataset.pending = ""; });
       });
     });
   }
@@ -213,42 +251,56 @@
         _skipUntilDone = false;
         if (status) status.textContent = "idle";
       } else if (t === "user" && d.text !== _lastServerUser) {
-        // New run detected — stop skipping and render this user bubble.
+        // A NEW submission arrived while the old run's replay was still
+        // draining on this stream. Its user bubble was already rendered
+        // optimistically on submit (htmx:beforeRequest), so DON'T append it
+        // again — just stop skipping so the new run's text/done can render.
         _skipUntilDone = false;
-        append("user", d.text, { force: true });
         currentAgentBubble = null;
         if (status) status.textContent = "thinking…";
       }
       return;
     }
     if (t === "user") {
-      // Dedup: skip the first user event matching the last server bubble
-      if (_pendingUserDedup && d.text === _lastServerUser) {
-        _pendingUserDedup = false;
-        if (status) status.textContent = "thinking…";
-        return;
-      }
-      // Force-scroll: the user just submitted, they always want to
-      // see their own message
-      append("user", d.text, { force: true });
-      currentAgentBubble = null;
+      // SWALLOW the server's user echo — never draw a bubble from it. The
+      // user's own message is ALWAYS rendered WITHOUT waiting for this echo:
+      //   • in-place submit   → drawn optimistically on htmx:beforeRequest
+      //   • Explore navigation → server-rendered into the page history
+      // so this echo is a guaranteed duplicate. This is the PERMANENT fix for
+      // "my message doesn't appear until I flip to another page and back":
+      // the bubble no longer depends on this echo surviving the single-
+      // consumer queue / connection-takeover timing (which silently dropped
+      // it). We only use the echo to advance the status indicator.
+      _pendingUserDedup = false;
       if (status) status.textContent = "thinking…";
+      return;
     } else if (t === "text") {
-      if (!currentAgentBubble) currentAgentBubble = append("agent", "");
-      currentAgentBubble.textContent += d.delta || "";
-      // Sticky-scroll: only pulls down if user is near bottom. rAF
-      // coalesces multi-delta bursts to one scroll per frame.
-      scheduleScroll();
+      const delta = d.delta || "";
+      // Defer behind any in-flight product-card fetch so cards render ABOVE
+      // the summary (see _cardFetchGate). When nothing is pending this runs
+      // on the next microtask — effectively immediate.
+      _afterCards(() => {
+        if (!currentAgentBubble) currentAgentBubble = append("agent", "");
+        currentAgentBubble.textContent += delta;
+        // Sticky-scroll: only pulls down if user is near bottom. rAF
+        // coalesces multi-delta bursts to one scroll per frame.
+        scheduleScroll();
+      });
     } else if (t === "tool_start") {
       appendTool(d.name || "tool");
     } else if (t === "done") {
       if (status) status.textContent = "idle";
-      currentAgentBubble = null;
+      // Route the bubble reset through the same gate so it can't run BEFORE
+      // a text delta that's still waiting on the card fetch (which would let
+      // the deferred delta recreate a bubble after this null, leaking it into
+      // the next turn).
+      _afterCards(() => { currentAgentBubble = null; });
     } else if (t === "bubble_end") {
       // Close the current agent bubble so the next on_text starts a fresh one.
       // Fired after each gate Q&A response to keep intermediate replies and
-      // the final purchase confirmation in separate chat bubbles.
-      currentAgentBubble = null;
+      // the final purchase confirmation in separate chat bubbles. Gated for
+      // the same ordering reason as `done`.
+      _afterCards(() => { currentAgentBubble = null; });
     } else if (t === "error") {
       append("agent", "⚠ " + (d.message || "Something went wrong."));
       if (status) status.textContent = "error";
@@ -268,7 +320,10 @@
       placeholder.className = "text-left my-2 space-y-2 max-w-[90%]";
       log.appendChild(placeholder);
       scheduleScroll();
-      fetch("/chat/products-fragment", {
+      // Extend the cards-before-text gate: the trailing `text` summary will
+      // wait for this fetch to fill the placeholder before its bubble paints,
+      // so cards are always visually first (no text-then-jump flicker).
+      const fetchDone = fetch("/chat/products-fragment", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({products: items}),
@@ -289,6 +344,7 @@
         }
         scheduleScroll();
       });
+      _afterCards(() => fetchDone);
     } else if (t === "click") {
       // Render a styled cart-action confirmation in the chat log instead of
       // just a toast. Uses the structured fields added to the click event.
@@ -316,16 +372,41 @@
          </div>`;
       log.appendChild(wrap);
       scheduleScroll();
-      // Also show a brief toast for immediate feedback
-      if (typeof window.__toast === "function") {
-        window.__toast(label + ": " + name, "info");
-      }
+      // NO toast here. The in-log confirmation bubble above is the SINGLE
+      // source of cart-action feedback. Previously we ALSO popped a
+      // window.__toast, so a single add produced TWO notifications — the
+      // "duplicate notification" the user reported. The badge is updated
+      // separately by _toast.html from the absolute cart_update frame.
     }
   });
 
-  // Clear input after submit. Don't force a scroll here — the SSE
-  // "user" event (which arrives almost immediately) handles the
-  // post-submit scroll with the right force=true flag.
+  // ── Optimistic user bubble (the permanent "my message doesn't show" fix) ──
+  // Render the user's OWN message the instant they submit — BEFORE the POST
+  // round-trip and entirely independent of the SSE `user` echo. The echo is
+  // swallowed in the dispatcher above, so this handler is the SOLE drawer of
+  // the in-place user bubble. Because it does not wait on the server, the
+  // bubble can no longer be lost to single-consumer queue / connection-
+  // takeover timing — which was why the message only appeared after flipping
+  // to another page and back (that navigation re-rendered it from history).
+  form.addEventListener("htmx:beforeRequest", () => {
+    const input = form.querySelector('input[name="message"]');
+    const text = input ? input.value.trim() : "";
+    if (!text) return;
+    // If we're still in the empty hero, reveal the active log in place so the
+    // bubble has a visible home (no reload — keeps the one EventSource alive).
+    if (window.__chatRevealActive) window.__chatRevealActive();
+    // Force-scroll: the user just hit Send, they always want to see their line.
+    append("user", text, { force: true });
+    // A fresh submission supersedes any pending old-run dedup/skip state and
+    // begins a new agent bubble.
+    _skipUntilDone = false;
+    _pendingUserDedup = false;
+    currentAgentBubble = null;
+    if (status) status.textContent = "thinking…";
+  });
+
+  // Clear input after submit (fires after the request is sent, so the
+  // beforeRequest handler above has already captured the text).
   form.addEventListener("htmx:afterRequest", () => {
     const input = form.querySelector('input[name="message"]');
     if (input) input.value = "";

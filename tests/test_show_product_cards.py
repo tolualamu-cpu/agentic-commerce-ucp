@@ -408,3 +408,152 @@ class TestWebDrain:
 
         events = _run(_go())
         assert not [e for e in events if e["type"] == "products"]
+
+
+# ─── 7. SSE event order: products BEFORE the summary text (cards-first) ──────
+
+
+class TestProductsBeforeTextOrdering:
+    """The live SSE stream MUST enqueue the ``products`` event BEFORE the
+    ``text`` summary for a discovery (find) flow. The chat-page client
+    (``_chat_sse.html``) relies on this contract: it reserves the product-card
+    placeholder on ``products`` and defers the summary bubble behind the card
+    fetch so cards render ABOVE the text. If the server ever emitted ``text``
+    first, the client would paint the summary above the cards — the exact
+    "product text appears before cards" bug the user reported.
+
+    Covered for all three merchants and a cross-merchant find, since a product
+    flow must never be validated against a single category (CLAUDE.md rule 3).
+    """
+
+    def _drain(self, sess):
+        events = []
+        while True:
+            try:
+                events.append(sess.sse_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        return events
+
+    def _run_find(self, multi_merchant_ctx, product, query):
+        """Drive a discovery find-flow through the real web handler and return
+        the drained SSE events. The fake orchestrator runs discovery (so the
+        product set changes → ``_run_orchestrator`` emits ``products``) then a
+        final reply (emitted as ``text``)."""
+        import json
+
+        from web import session as session_mod
+        from web.routers.chat import _run_orchestrator
+
+        merchant = product["merchant_domain"]
+        discovery_json = json.dumps({"products": [product], "notes": "Found it"})
+        fake_orch = OrchestratorAgent(
+            client=FakeAnthropicClient(
+                [
+                    tool_use_response(
+                        ("call_discovery_agent", {"brief": query, "merchant_domains": [merchant]})
+                    ),
+                    tool_use_response(
+                        ("search_products", {"query": query, "merchant_domain": merchant})
+                    ),
+                    text_response(discovery_json),
+                    text_response("Here is what I found for you."),
+                ]
+            ),
+            confirmation=AutoConfirmProvider(),
+            mandate_id="m_test",
+        )
+        sess = session_mod.WebSession(
+            session_id="sess_order",
+            db=multi_merchant_ctx.db,
+            ctx=multi_merchant_ctx,
+            orchestrator=fake_orch,
+            mandate_id="m_test",
+            gate_provider=None,
+        )
+
+        async def _go():
+            await _run_orchestrator(sess, query)
+            return self._drain(sess)
+
+        return _run(_go())
+
+    def _assert_products_before_text(self, events):
+        types = [e["type"] for e in events]
+        assert "products" in types, "a products event must be emitted on a find-flow"
+        assert "text" in types, "a text summary must be emitted on a find-flow"
+        assert types.index("products") < types.index("text"), (
+            "products must be enqueued BEFORE the text summary so the client "
+            "renders cards above the summary (cards-first ordering contract)"
+        )
+
+    def test_shoe_find_products_before_text(self, multi_merchant_ctx):
+        events = self._run_find(multi_merchant_ctx, _shoe(), "find running shoes")
+        self._assert_products_before_text(events)
+
+    def test_headphones_find_products_before_text(self, multi_merchant_ctx):
+        events = self._run_find(multi_merchant_ctx, _headphones(), "find headphones")
+        self._assert_products_before_text(events)
+
+    def test_mug_find_products_before_text(self, multi_merchant_ctx):
+        events = self._run_find(multi_merchant_ctx, _mug(), "find a coffee mug")
+        self._assert_products_before_text(events)
+
+    def test_cross_merchant_find_products_before_text(self, multi_merchant_ctx):
+        """Cross-merchant discovery: a single discovery turn returns products
+        from more than one store, then the summary. Cards still come first."""
+        import json
+
+        from web import session as session_mod
+        from web.routers.chat import _run_orchestrator
+
+        shoe, mug = _shoe(), _mug()
+        # Discovery returns a cross-merchant set in one go.
+        discovery_json = json.dumps({"products": [shoe, mug], "notes": "Found across stores"})
+        fake_orch = OrchestratorAgent(
+            client=FakeAnthropicClient(
+                [
+                    tool_use_response(
+                        (
+                            "call_discovery_agent",
+                            {
+                                "brief": "gear",
+                                "merchant_domains": [
+                                    shoe["merchant_domain"],
+                                    mug["merchant_domain"],
+                                ],
+                            },
+                        )
+                    ),
+                    tool_use_response(
+                        (
+                            "search_products",
+                            {"query": "gear", "merchant_domain": shoe["merchant_domain"]},
+                        )
+                    ),
+                    text_response(discovery_json),
+                    text_response("Two picks across stores."),
+                ]
+            ),
+            confirmation=AutoConfirmProvider(),
+            mandate_id="m_test",
+        )
+        sess = session_mod.WebSession(
+            session_id="sess_order_x",
+            db=multi_merchant_ctx.db,
+            ctx=multi_merchant_ctx,
+            orchestrator=fake_orch,
+            mandate_id="m_test",
+            gate_provider=None,
+        )
+
+        async def _go():
+            await _run_orchestrator(sess, "find gear across stores")
+            return self._drain(sess)
+
+        events = _run(_go())
+        self._assert_products_before_text(events)
+        # The products event must carry both merchants' items.
+        prod_evt = next(e for e in events if e["type"] == "products")
+        domains = {p["merchant_domain"] for p in prod_evt["data"]["products"]}
+        assert domains == {shoe["merchant_domain"], mug["merchant_domain"]}

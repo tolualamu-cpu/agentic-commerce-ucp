@@ -47,6 +47,12 @@ class ToolSpec:
     handler: Callable[..., Awaitable[Any]]
     # Whether the tool needs ctx as the first positional argument
     takes_context: bool = True
+    # Terminal tools produce the agent's COMPLETE structured result. When the
+    # model calls exactly one terminal tool and it returns without error, the
+    # loop short-circuits — no extra "reformat into JSON" LLM round-trip — and
+    # the (optionally wrapped) tool output is returned directly. Use only where
+    # the tool output IS the final answer (e.g. deterministic ranking).
+    terminal: bool = False
 
     def to_anthropic(self) -> dict:
         """Anthropic tool format."""
@@ -136,6 +142,7 @@ def make_tool_spec(
     required: list[str] | None = None,
     overrides: dict[str, dict] | None = None,
     takes_context: bool = True,
+    terminal: bool = False,
 ) -> ToolSpec:
     """Build a ToolSpec by inspecting ``handler``'s signature.
 
@@ -175,6 +182,7 @@ def make_tool_spec(
         },
         handler=handler,
         takes_context=takes_context,
+        terminal=terminal,
     )
 
 
@@ -212,7 +220,21 @@ class BaseAgent:
         Orchestrator across turns). Subagents leave it None — they are stateless.
         """
         if history is not None:
-            history.append({"role": "user", "content": user_message})
+            # Guard against double-appending the user turn. The web layer
+            # persists the user message into ``session.conversation``
+            # synchronously inside ``POST /chat`` (so the immediate
+            # navigation to /chat renders the active state with the new turn
+            # visible, instead of racing the background orchestrator and
+            # landing on the empty hero). When that pre-appended turn is the
+            # last entry here, appending again would duplicate it — both in
+            # the model's context and in the rendered chat log. The CLI and
+            # the test suite never pre-append, so this guard is a no-op for
+            # them (the last turn there is always an assistant/tool turn).
+            already_appended = bool(history) and (
+                history[-1].get("role") == "user" and history[-1].get("content") == user_message
+            )
+            if not already_appended:
+                history.append({"role": "user", "content": user_message})
             messages = history
         else:
             messages = [{"role": "user", "content": user_message}]
@@ -259,8 +281,10 @@ class BaseAgent:
 
             # Dispatch tool calls
             tool_results = []
+            invoked: list[tuple[str, Any]] = []
             for tu in tool_uses:
                 result = await self._invoke(ctx, tu.name, tu.input)
+                invoked.append((tu.name, result))
                 tool_results.append(
                     {
                         "type": "tool_result",
@@ -269,6 +293,16 @@ class BaseAgent:
                     }
                 )
             messages.append({"role": "user", "content": tool_results})
+
+            # Terminal-tool fast-path: when the model called exactly ONE tool,
+            # that tool is marked terminal, and it returned without error, the
+            # tool output IS the complete result — return it directly and skip
+            # the otherwise-redundant "reformat into final JSON" LLM round-trip.
+            if len(invoked) == 1:
+                name, result = invoked[0]
+                spec = self._dispatch.get(name)
+                if spec is not None and spec.terminal and not _is_tool_error(result):
+                    return self._wrap_terminal(name, result)
 
         # Iteration cap hit — return whatever text we have
         return {"parse_error": "max_iterations_exceeded", "raw": last_text}
@@ -285,6 +319,19 @@ class BaseAgent:
             return _serialise(await spec.handler(**args))
         except Exception as e:  # tool errors must not crash the loop
             return {"error": type(e).__name__, "message": str(e)}
+
+    # ── terminal fast-path ─────────────────────────────────────────────────────
+
+    def _wrap_terminal(self, name: str, result: Any) -> dict:
+        """Shape a terminal tool's raw output into the agent's final dict.
+
+        Default: pass the result through if it's already a dict; otherwise wrap
+        it under the tool name. Subclasses override to assemble the exact schema
+        the orchestrator expects (e.g. EvaluationAgent → {ranked, ...}).
+        """
+        if isinstance(result, dict):
+            return result
+        return {name: result}
 
     # ── parsing ──────────────────────────────────────────────────────────────
 
@@ -312,6 +359,17 @@ class BaseAgent:
                     continue
         # Last resort: surface the raw text
         return {"parse_error": "non_json", "raw": text}
+
+
+def _is_tool_error(result: Any) -> bool:
+    """A tool dispatch failed if it returned an ``{"error": ...}`` envelope.
+
+    ``_invoke`` wraps exceptions as ``{"error": <type>, "message": <str>}`` and
+    unknown tools as ``{"error": "unknown tool: ..."}``. In those cases the
+    terminal fast-path must NOT fire — fall back to the normal loop so the model
+    can react to the error.
+    """
+    return isinstance(result, dict) and "error" in result
 
 
 def _serialise(value: Any) -> Any:
