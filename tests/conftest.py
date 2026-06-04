@@ -12,6 +12,24 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# ── Browser (Playwright) suite isolation ────────────────────────────────────
+# The browser e2e suite under tests/browser/ drives a session-scoped *sync*
+# Playwright greenlet. Once started, that greenlet's asyncio machinery
+# contaminates the default event loop the rest of the suite relies on (the
+# Python 3.9 `asyncio.get_event_loop()` pattern from CLAUDE.md), so any unit
+# test running AFTER a browser test in the same process fails with
+# "coroutine was never awaited" / loop-closed errors. Because "browser" sorts
+# before "test_*", that would be the entire suite.
+#
+# Fix: keep the browser suite OUT of the default `pytest tests/` collection so
+# `pytest tests/ -x -q` (the CLAUDE.md baseline) stays green. It runs in its
+# OWN process when explicitly requested — `python -m pytest tests/browser` —
+# exactly as requirements-dev.txt documents. We only skip collection when the
+# command line did NOT explicitly target the browser path.
+collect_ignore = []
+if not any("browser" in str(arg) for arg in sys.argv[1:]):
+    collect_ignore.append("browser")
+
 
 @pytest.fixture
 def tmp_db(tmp_path):

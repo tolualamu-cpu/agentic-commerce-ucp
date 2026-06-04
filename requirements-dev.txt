@@ -1,0 +1,17 @@
+# Dev / test-only dependencies (NOT needed to run the app).
+#
+# Browser end-to-end tests under tests/browser/ drive a real headless
+# Chromium via Playwright so the chat/cart JavaScript LIFECYCLE is actually
+# executed — the class of bug (optimistic user bubble, absolute cart badge,
+# in-place reveal, SSE card ordering) that the TestClient-based suite can
+# assert the wiring of but cannot prove behaves correctly in a browser.
+#
+# Install:   pip install -r requirements-dev.txt
+#            python -m playwright install chromium
+# Run:       python -m pytest tests/browser -q
+#
+# The browser tests SKIP automatically (never fail) when Playwright or its
+# browser binaries are absent, so `pytest tests/ -x -q` stays green for
+# contributors who haven't installed them.
+-r requirements.txt
+pytest-playwright>=0.5.2
