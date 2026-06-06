@@ -211,6 +211,16 @@ def create_app() -> FastAPI:
     app.include_router(gate_ws_router.router)
     app.include_router(account_router.router)
 
+    # Test-only SSE injection hooks for deterministic browser (Playwright)
+    # e2e tests. Mounted ONLY when CARTO_ENABLE_TEST_HOOKS=1, so the
+    # /__test__/* surface never exists in a normal run or real deployment.
+    import os
+
+    if os.getenv("CARTO_ENABLE_TEST_HOOKS") == "1":
+        from web.routers import test_hooks as test_hooks_router
+
+        app.include_router(test_hooks_router.router)
+
     return app
 
 

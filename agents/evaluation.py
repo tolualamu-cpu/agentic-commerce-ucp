@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from agents.base import BaseAgent, make_tool_spec
 from agents.prompts import EVALUATION
+from models.product import RankedProduct
 from tools import evaluation_tools
 
 
@@ -30,6 +33,10 @@ class EvaluationAgent(BaseAgent):
                 },
             },
             required=["products"],
+            # rank_products output IS the complete ranking — the deterministic
+            # scorer leaves no judgment for a second LLM turn. Short-circuit the
+            # reformat round-trip; _wrap_terminal assembles the result schema.
+            terminal=True,
         ),
         make_tool_spec(
             name="fetch_reviews",
@@ -47,3 +54,22 @@ class EvaluationAgent(BaseAgent):
             required=["product_name", "merchant_domains"],
         ),
     ]
+
+    def _wrap_terminal(self, name: str, result: Any) -> dict:
+        """Assemble the EvaluationAgent's final result from a terminal tool.
+
+        When ``rank_products`` fires as the terminal tool, ``result`` is the
+        serialised RankedProduct list. Rebuild the schema the orchestrator
+        expects ({ranked, top_pick_rationale, risk_flags}) with a deterministic
+        rationale — no second Haiku turn. The user-facing comparison prose is
+        still written by the orchestrator's Sonnet summary, so explicit-compare
+        UX is unchanged. Other tools fall back to the base behaviour.
+        """
+        if name == "rank_products" and isinstance(result, list):
+            ranked = [RankedProduct.model_validate(r) for r in result]
+            return {
+                "ranked": [r.model_dump(mode="json") for r in ranked],
+                "top_pick_rationale": evaluation_tools.template_rationale(ranked),
+                "risk_flags": sorted({f for r in ranked for f in r.risk_flags}),
+            }
+        return super()._wrap_terminal(name, result)

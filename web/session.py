@@ -46,6 +46,7 @@ from ucp.ap2_extension import AP2MandateEngine
 from ucp.discovery import UCPProfileDiscovery
 from ucp.signing import RequestSigner, generate_keypair
 from web.gate_provider import WebsocketConfirmProvider
+from web.stream_takeover import StreamGeneration
 
 
 COOKIE_NAME = "ac_session"
@@ -75,12 +76,34 @@ class WebSession:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     _sse_queue: Optional[asyncio.Queue] = None
     _orchestrator_lock: Optional[asyncio.Lock] = None
+    # Tracks the most-recently-opened /chat/stream connection so an older
+    # (navigating-away) connection cleanly hands off to the newer one instead
+    # of stealing events off the single-consumer ``sse_queue``. See
+    # ``web.stream_takeover`` for the full rationale.
+    _stream_gen: StreamGeneration = field(default_factory=StreamGeneration)
 
     @property
     def sse_queue(self) -> asyncio.Queue:
         if self._sse_queue is None:
             self._sse_queue = asyncio.Queue()
         return self._sse_queue
+
+    @property
+    def stream_generation(self) -> int:
+        """Generation id of the currently-active /chat/stream connection."""
+        return self._stream_gen.current
+
+    def new_stream_generation(self):
+        """Claim a fresh generation for a new /chat/stream connection.
+
+        Resolves the previous connection's ``superseded`` future so an older
+        connection blocked on ``sse_queue.get()`` retires at once — before the
+        orchestrator's ``products``/``text``/``done`` burst arrives (seconds
+        later, after the LLM round-trips) — keeping a single consumer competing
+        for the burst so events arrive in order (cards-first) on the active
+        page. Returns ``(generation, superseded_future)``.
+        """
+        return self._stream_gen.next()
 
     @property
     def orchestrator_lock(self) -> asyncio.Lock:
@@ -219,6 +242,13 @@ def _build_anthropic_client_or_none():
     grid works for demos). Chat / agent features will return a polite
     "no key configured" message in that case.
     """
+    # Explicit offline override for deterministic browser (Playwright) e2e
+    # tests: forces the unconfigured stub regardless of any key present in the
+    # environment or .env (the settings backfill otherwise heals an empty key
+    # from .env, which would make the test server hit a live model). Gated by
+    # an env flag, so it has no effect on a normal run.
+    if os.getenv("CARTO_FORCE_OFFLINE") == "1":
+        return _UnconfiguredAnthropicClient()
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return _UnconfiguredAnthropicClient()

@@ -136,12 +136,19 @@
 
   {% else %}
   {# Empty state: hero-style centered prompt + chips. Not sticky — the
-     input IS the hero. #}
+     input IS the hero.
+
+     IMPORTANT: the empty→active transition happens IN PLACE (no reload)
+     via window.__chatRevealActive() defined below. The single
+     EventSource('/chat/stream') connection (opened by _toast.html on
+     page load) stays alive the whole time, so it is always the active
+     consumer of the orchestrator burst — no reload, no second
+     connection, no dropped-burst race. #}
   <div id="chat-log" class="hidden" aria-hidden="true"></div>
   <span id="chat-status" class="hidden">idle</span>
 
-  <div class="flex-1 flex flex-col justify-center py-12">
-    <div class="text-center mb-6">
+  <div id="chat-empty-hero" class="flex-1 flex flex-col justify-center py-12">
+    <div id="chat-headline-wrap" class="text-center mb-6">
       <h1 id="chat-headline"
           data-typewriter="What are you shopping for?"
           class="text-3xl md:text-4xl font-semibold text-slate-900
@@ -167,22 +174,54 @@
     </div>
 
     <div id="chat-input-section">
-      {# Empty state needs to reload to /chat after a successful POST
-         so the page re-renders in the active state with the new turn
-         visible. Without reload_after, the SSE-streamed bubbles would
-         land in a hidden #chat-log. #}
-      {% with reload_after=True, input_placeholder="Find it with Carto..." %}
+      {# Empty state reveals the chat-log IN PLACE after a successful
+         POST (no reload) so the SSE-streamed bubbles land in the now
+         visible #chat-log while the single EventSource stays connected.
+         See __chatRevealActive below and the _chat_input.html header. #}
+      {% with reveal_in_place=True, input_placeholder="Find it with Carto..." %}
         {% include "_chat_input.html" %}
       {% endwith %}
     </div>
 
     {# Same suggestion chips as Explore so the user can kick off a
        thread from here too. Chips call form.requestSubmit() so they
-       inherit the form's reload-after-request behaviour automatically. #}
-    <div class="mt-6">
+       inherit the form's reveal-in-place submit behaviour automatically. #}
+    <div id="chat-suggestion-chips" class="mt-6">
       {% include "_suggestion_chips.html" %}
     </div>
   </div>
+
+  {# Empty→active transition (no reload). On a successful first POST the
+     form calls this: reveal the chat-log with the SAME layout classes
+     the active state uses, drop the hero headline + chips, and stop the
+     vertical centering so the input settles below the log. The single
+     /chat/stream EventSource (opened on load by _toast.html) is never
+     torn down, so it remains the active consumer and streams the user
+     bubble + cards + summary straight into the revealed log. #}
+  <script>
+  (function () {
+    window.__chatRevealActive = function () {
+      // Idempotent: a second submit before any reload is a no-op for the
+      // structural changes (log already revealed); bubbles keep flowing
+      // into the same #chat-log via the _chat_sse.html dispatcher.
+      var log = document.getElementById("chat-log");
+      if (log && log.classList.contains("hidden")) {
+        log.className = "flex-1 flex flex-col gap-3 text-sm pb-4 pt-2";
+        log.setAttribute("aria-live", "polite");
+        log.removeAttribute("aria-hidden");
+      }
+      var headline = document.getElementById("chat-headline-wrap");
+      if (headline) headline.classList.add("hidden");
+      var chips = document.getElementById("chat-suggestion-chips");
+      if (chips) chips.classList.add("hidden");
+      // Drop the hero's vertical-centering so the input no longer floats
+      // mid-viewport; the flex-1 log above now pushes it toward the
+      // bottom of the column, matching the active layout's feel.
+      var hero = document.getElementById("chat-empty-hero");
+      if (hero) hero.className = "";
+    };
+  })();
+  </script>
   {% endif %}
 
 </div>

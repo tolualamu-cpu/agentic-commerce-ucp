@@ -25,7 +25,8 @@ from cli.confirmation import (
     GateData,
     classify_gate,
 )
-from tools import shared_tools
+from models.product import ProductResult
+from tools import evaluation_tools, shared_tools
 from tools.context import ToolContext
 
 
@@ -162,6 +163,33 @@ class OrchestratorAgent(BaseAgent):
                     "required": ["brief", "products"],
                 },
                 handler=self._call_evaluation,
+                takes_context=True,
+            ),
+            ToolSpec(
+                name="rank_candidates",
+                description=(
+                    "Rank the most recently discovered products by the weighted "
+                    "composite score (preference 30%, price 25%, trust 20%, "
+                    "shipping 15%, reviews 10%). DETERMINISTIC and in-process — "
+                    "no subagent round-trip. Use this for ordinary ranking after "
+                    "a search ('find', 'best', 'cheapest', 'which should I get', "
+                    "'top pick'). Reads from the discovery cache, so you do NOT "
+                    "pass products. Optional product_ids (list[str]) to rank a "
+                    "subset; omit to rank all recent results. Returns ranked[], "
+                    "top_pick_rationale, risk_flags. Prefer this over "
+                    "call_evaluation_agent unless the user explicitly asks for a "
+                    "narrative comparison/justification between specific items."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "product_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                },
+                handler=self._rank_candidates,
                 takes_context=True,
             ),
             ToolSpec(
@@ -383,6 +411,42 @@ class OrchestratorAgent(BaseAgent):
             selected = list(cached)
         ctx.session.cards_to_show = selected
         return {"status": "cards_rendered", "shown": len(selected)}
+
+    async def _rank_candidates(
+        self, ctx: ToolContext, *, product_ids: list[str] | None = None
+    ) -> dict:
+        """Rank the most recently discovered products — deterministic, in-process.
+
+        Runs the SAME weighted composite scorer the EvaluationAgent uses
+        (``rank_products``), but without a subagent round-trip. Reads candidates
+        from the discovery cache (set by ``_call_discovery``) so the orchestrator
+        never has to re-serialise the product list into tool args. ``user`` is
+        sourced from ``ctx.user`` inside ``rank_products`` automatically, so
+        preference scoring is preserved. Output schema is byte-compatible with
+        the EvaluationAgent result so downstream reasoning is unchanged.
+        """
+        cached = ctx.session.last_discovered_products or []
+        if product_ids:
+            wanted = set(product_ids)
+            selected = [
+                p for p in cached if str(p.get("product_id") or p.get("id") or "") in wanted
+            ]
+        else:
+            selected = list(cached)
+
+        products: list[ProductResult] = []
+        for p in selected:
+            try:
+                products.append(ProductResult.model_validate(p))
+            except Exception:  # noqa: BLE001 — skip any malformed cache entry
+                continue
+
+        ranked = await evaluation_tools.rank_products(ctx, products=products)
+        return {
+            "ranked": [r.model_dump(mode="json") for r in ranked],
+            "top_pick_rationale": evaluation_tools.template_rationale(ranked),
+            "risk_flags": sorted({f for r in ranked for f in r.risk_flags}),
+        }
 
     async def _add_to_cart(
         self,

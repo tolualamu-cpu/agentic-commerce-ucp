@@ -27,6 +27,31 @@ jobs:
           SUBAGENT_MODEL: claude-haiku-4-5
         run: python -m pytest tests/ -x -q
 
+  browser:
+    # Real headless-Chromium e2e tests that drive the chat/cart JavaScript
+    # lifecycle (Playwright). Kept in a SEPARATE job/process: the sync
+    # Playwright greenlet contaminates the asyncio loop the unit suite relies
+    # on, so `pytest tests/` deliberately excludes tests/browser (see
+    # tests/conftest.py) and we invoke that path explicitly here. The server
+    # boots OFFLINE + with test hooks, so no ANTHROPIC_API_KEY is needed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Install Chromium for Playwright
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run browser e2e tests
+        run: python -m pytest tests/browser -q
+
   lint:
     runs-on: ubuntu-latest
     steps:

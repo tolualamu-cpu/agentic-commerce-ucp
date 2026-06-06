@@ -54,9 +54,31 @@
        start (no front-loaded "pop"/flash) and settles softly at the end. */
     .ac-bubble-in { animation: ac-bubble-in 850ms ease-in-out both; }
     .ac-card-in   { animation: ac-card-in 1000ms ease-in-out both; }
-    /* Respect reduced-motion: show everything instantly, no movement. */
+    /* Typing indicator (the agent "is composing a reply" cue). A soft three-dot
+       wave shown ONLY while awaiting the agent's response (created on submit,
+       removed the instant any real output lands). Intentionally slow — a 1.4s
+       cycle with a small 4px lift reads as a calm "typing…", never a frantic
+       blink. The three dots share one keyframe, staggered so the wave travels
+       left→right. */
+    @keyframes ac-typing-wave {
+      0%, 60%, 100% { transform: translateY(0);    opacity: 0.40; }
+      30%           { transform: translateY(-4px); opacity: 1; }
+    }
+    .ac-typing-dot {
+      display: inline-block;
+      width: 6px; height: 6px; margin: 0 2px;
+      border-radius: 9999px;
+      background: #94a3b8; /* slate-400 */
+      animation: ac-typing-wave 1.4s ease-in-out infinite;
+    }
+    .ac-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .ac-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    /* Respect reduced-motion: show everything instantly, no movement. The
+       typing dots stay visible (so the loading cue is still conveyed) but do
+       not animate. */
     @media (prefers-reduced-motion: reduce) {
       .ac-bubble-in, .ac-card-in { animation: none; }
+      .ac-typing-dot { animation: none; opacity: 0.7; }
     }
   </style>
 </head>

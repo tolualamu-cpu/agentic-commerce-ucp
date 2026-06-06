@@ -4,23 +4,39 @@
    the reply into the visible #chat-log — no navigation. Used by the
    active /chat state.
 
-   When included with ``reload_after=True`` (empty /chat, where the
-   chat-log is hidden and SSE bubbles would be invisible), the form
-   navigates to /chat after a successful POST so the page re-renders
-   in the active state with the new turn visible.
+   When included with ``reveal_in_place=True`` (empty /chat, where the
+   chat-log starts hidden), the form does NOT navigate. Instead it calls
+   ``window.__chatRevealActive()`` on a successful POST, which un-hides
+   #chat-log and drops the hero so the SSE-streamed reply lands in the
+   now-visible log. CRITICAL: this keeps the page's SINGLE, already-open
+   EventSource('/chat/stream') connection (owned by _toast.html) alive
+   throughout. A full reload (the old ``reload_after`` behaviour) tore
+   that connection down and re-opened a new one; during the unload gap
+   the dying connection could still drain the orchestrator's
+   products/text/done burst off the single-consumer sse_queue — events
+   that are NOT re-queued — so the freshly-loaded page got nothing and
+   the chat "didn't populate until you flipped to another page and
+   back" (history re-render). No reload ⇒ no second connection ⇒ no race.
+
+   ``reload_after=True`` is retained ONLY for genuine cross-page hops
+   (e.g. the home hero posting then navigating to /chat) where there is
+   no in-place log to reveal.
 
    The form id is `chat-form` and the input id is `chat-input` — same
    names the SSE handler and suggestion-chip helper expect. So chips
    automatically inherit whichever submit behaviour is active.
 #}
 {% set _reload_after = (reload_after | default(False)) %}
+{% set _reveal_in_place = (reveal_in_place | default(False)) %}
 {% set _placeholder = (input_placeholder | default("Reply or refine…")) %}
 {% set _no_centering = (no_centering | default(False)) %}
 <form id="chat-form"
       hx-post="/chat" hx-swap="none"
       action="/chat" method="post"
       class="{{ 'w-full' if _no_centering else 'mx-auto max-w-2xl w-full' }}"
-      {% if _reload_after %}
+      {% if _reveal_in_place %}
+      hx-on::after-request="if (event.detail.successful && window.__chatRevealActive) window.__chatRevealActive();"
+      {% elif _reload_after %}
       hx-on::after-request="if (event.detail.successful) window.location.href = '/chat';"
       {% endif %}>
   <div class="relative rounded-2xl shadow-sm ring-1 ring-slate-200

@@ -26,6 +26,7 @@ from web.session import (
     _serializer,
     get_session_by_id,
 )
+from web.stream_takeover import stream_until_superseded
 from itsdangerous import BadSignature
 
 router = APIRouter()
@@ -69,9 +70,39 @@ async def gate_ws(websocket: WebSocket):
     await websocket.accept()
     provider = sess.gate_provider
 
+    # Claim a generation. The instant a NEWER /gate/ws opens (every page
+    # navigation auto-reconnects), ``superseded`` resolves and this connection's
+    # pump_out retires WITHOUT consuming — so it can't steal the ``gate.open``
+    # off the single-consumer ``outbox`` and write it to an abandoned socket.
+    # That theft is exactly why "Review purchase" opened no modal. Shared
+    # primitive with the SSE takeover (see ``web.stream_takeover``).
+    _my_gen, superseded = provider.new_ws_generation()
+
+    # SELF-HEALING replay: if a gate is already awaiting a reply, re-send it to
+    # THIS freshly-opened connection at once. This is the permanent fix for the
+    # recurring "Review purchase shows no modal, then chat doesn't register"
+    # bug. The original gate.open is delivered to a single outbox consumer; if
+    # that consumer was a connection the browser already abandoned (navigation /
+    # reconnect race), the live page never saw it and the orchestrator stayed
+    # blocked in _present forever. Replaying on connect means whichever page is
+    # actually open WILL get the modal — delivery no longer hinges on winning a
+    # one-shot timing race. Idempotent for the browser (openModal just
+    # re-renders the same gate).
+    pending = provider.current_gate()
+    if pending is not None:
+        try:
+            await websocket.send_json(pending)
+        except Exception:
+            # Socket died between accept() and the replay — the pump loop
+            # below will tear the connection down; the next reconnect replays.
+            return
+
     async def pump_out():
-        while True:
-            evt = await provider.outbox.get()
+        # No ``is_disconnected`` arg: the WS has no cheap disconnect poll, but
+        # ``pump_in`` raises WebSocketDisconnect on a dead socket and the
+        # FIRST_COMPLETED wait below tears this task down. ``superseded`` covers
+        # the navigation-overlap case (the reason this rewrite exists).
+        async for evt in stream_until_superseded(provider.outbox, superseded):
             await websocket.send_json(evt)
 
     async def pump_in():
@@ -105,12 +136,21 @@ async def gate_ws(websocket: WebSocket):
     try:
         out_task = asyncio.create_task(pump_out())
         in_task = asyncio.create_task(pump_in())
+        # FIRST_COMPLETED (not FIRST_EXCEPTION): pump_out RETURNS cleanly (no
+        # exception) when this connection is superseded by a newer /gate/ws, and
+        # we want that to tear the stale connection down immediately rather than
+        # leaving it half-alive draining nothing.
         done, pending = await asyncio.wait(
             {out_task, in_task},
-            return_when=asyncio.FIRST_EXCEPTION,
+            return_when=asyncio.FIRST_COMPLETED,
         )
         for t in pending:
             t.cancel()
+        # Consume any exception on the finished task(s) so asyncio doesn't log
+        # "Task exception was never retrieved". A dead-socket send error or a
+        # WebSocketDisconnect both just mean this connection is over.
+        for t in done:
+            t.exception()
     except WebSocketDisconnect:
         pass
     # Note: we deliberately do NOT push a synthetic cancel on disconnect.
