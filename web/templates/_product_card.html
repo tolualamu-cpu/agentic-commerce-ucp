@@ -2,7 +2,28 @@
    product details. Slightly cleaner than the original grid card. #}
 <article class="bg-white rounded-xl border border-slate-200 p-3
                 hover:shadow-md hover:border-slate-300 transition
-                flex flex-col h-full">
+                flex flex-col h-full"
+         style="position:relative">
+  {# External merchant badge — top-right corner, single line.
+     Positioning kept inline (it's specific to this card layout); hover
+     colors come from the shared .ucp-buy-badge class in base.html so
+     there are no inline onmouseenter/onmouseleave handlers that could
+     trip up innerHTML injection in chat fragments. #}
+  {% if product.url and product.url.startswith('http') %}
+  <a href="{{ product.url }}" target="_blank" rel="noopener"
+     class="ucp-buy-badge"
+     onclick="event.stopPropagation()"
+     style="position:absolute;top:0.75rem;right:0.75rem;z-index:10;
+            background:rgba(255,255,255,0.92);color:#334155;
+            box-shadow:0 1px 2px rgba(0,0,0,0.05);
+            backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)">
+    Buy on {{ product.merchant }}
+    <svg style="width:12px;height:12px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+    </svg>
+  </a>
+  {% endif %}
   <a href="/product/{{ product.merchant_domain }}/{{ product.product_id }}"
      class="block flex-1">
     {% if product.images %}
@@ -41,6 +62,24 @@
     {% endif %}
   </a>
   {% if product.in_stock %}
+  {% if product.variants %}
+  <button type="button"
+          onclick="window.__openVariantPicker(this)"
+          data-product='{{ {
+            "product_id": product.product_id,
+            "merchant_domain": product.merchant_domain,
+            "name": product.name,
+            "price": product.price | string,
+            "image": (product.images[0] if product.images else None),
+            "option_names": product.option_names,
+            "variants": product.variants | variant_dicts,
+          } | tojson }}'
+          class="mt-3 w-full px-3 py-2 bg-slate-900 text-white rounded-lg
+                 hover:bg-slate-800 text-sm font-medium
+                 transition active:scale-95">
+    Add to cart
+  </button>
+  {% else %}
   <form action="/cart/add/{{ product.merchant_domain }}/{{ product.product_id }}"
         method="post"
         hx-post="/cart/add/{{ product.merchant_domain }}/{{ product.product_id }}"
@@ -57,5 +96,6 @@
       Add to cart
     </button>
   </form>
+  {% endif %}
   {% endif %}
 </article>

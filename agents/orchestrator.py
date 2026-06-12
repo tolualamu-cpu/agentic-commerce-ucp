@@ -17,6 +17,7 @@ from agents.base import AnthropicLike, BaseAgent, ToolSpec, make_tool_spec
 from agents.discovery import DiscoveryAgent
 from agents.evaluation import EvaluationAgent
 from agents.prompts import ORCHESTRATOR, orchestrator_prompt
+from agents.product_grouping import group_into_families
 from agents.purchase import PurchaseAgent
 from agents.tracking import TrackingAgent
 from cli.confirmation import (
@@ -26,7 +27,7 @@ from cli.confirmation import (
     classify_gate,
 )
 from models.product import ProductResult
-from tools import evaluation_tools, shared_tools
+from tools import discovery_tools, evaluation_tools, shared_tools
 from tools.context import ToolContext
 
 
@@ -323,15 +324,38 @@ class OrchestratorAgent(BaseAgent):
                     "sit in the cart until the user explicitly buys "
                     "them. This tool does NOT trigger payment, does NOT "
                     "fire a HITL gate, and does NOT create an order. "
-                    "For actual purchases use call_purchase_agent."
+                    "For actual purchases use call_purchase_agent. "
+                    "The product's name, price and image are looked up "
+                    "automatically — never invent them. If the product "
+                    "has size/color/etc. variants and no variant_id is "
+                    "given, this returns error: 'variant_required' with "
+                    "the real option_names and variants — present those "
+                    "EXACT choices to the user, then call this again with "
+                    "the chosen variant_id. Never fabricate a variant_id."
                 ),
                 handler=self._add_to_cart,
                 overrides={
                     "quantity": {"type": "integer"},
-                    "price": {"type": "string"},
-                    "image_url": {"type": "string"},
+                    "variant_id": {"type": "string"},
                 },
-                required=["product_id", "merchant_domain", "quantity", "name", "price"],
+                required=["product_id", "merchant_domain", "quantity"],
+                takes_context=True,
+            ),
+            make_tool_spec(
+                name="get_product_variants",
+                description=(
+                    "Return a product's REAL size/color/material/roast/etc. "
+                    "options and SKUs (option_names + variants, each with its "
+                    "variant_id and options). Use this to answer 'what sizes/"
+                    "colors does X come in', or to resolve a user-named "
+                    "variant value (e.g. 'the black one in size M', 'the dark "
+                    "roast in 2lb') to its real variant_id before calling "
+                    "add_to_cart. has_variants: false means the product is "
+                    "single-SKU. NEVER invent option values — only use what "
+                    "this tool returns."
+                ),
+                handler=self._get_product_variants,
+                required=["product_id", "merchant_domain"],
                 takes_context=True,
             ),
             make_tool_spec(
@@ -382,9 +406,75 @@ class OrchestratorAgent(BaseAgent):
         # Cache the products so we don't have to re-discover when the user
         # asks follow-up questions or returns to refine the basket.
         if isinstance(result, dict) and isinstance(result.get("products"), list):
-            ctx.session.last_discovered_products = result["products"]
+            ctx.session.last_discovered_products = await self._group_discovered_products(
+                ctx, result["products"]
+            )
         await self._emit_tool_end("call_discovery_agent", result)
         return result
+
+    async def _backfill_variants(self, ctx: ToolContext, products: list[ProductResult]) -> None:
+        """Backfill ``variants``/``option_names`` from the adapter when the
+        discovery agent (Claude Haiku) dropped them.
+
+        Mirrors ``_enrich_products_with_images`` in ``web/routers/chat.py``
+        (a DEFENSIVE safety net for fields Haiku is unreliable about
+        copying from tool results), but for variant data, and runs BEFORE
+        ``group_into_families`` so grouping sees each member's REAL
+        per-dimension variants (e.g. Size) rather than just the dimension
+        stripped from the title (e.g. Color). Real Kith products can carry
+        20-30 variants — far too much to rely on the LLM faithfully copying
+        in its JSON output, so this always re-fetches from the in-memory
+        adapter (no network call) rather than requiring the prompt to
+        include full variant arrays.
+
+        Mutates ``products`` in place; no-op for products that already have
+        ``variants`` or whose adapter/product can't be found.
+        """
+        for product in products:
+            if product.variants:
+                continue
+            adapter = getattr(ctx.merchant_gateway, "direct_adapters", {}).get(
+                product.merchant_domain
+            )
+            if not adapter:
+                continue
+            try:
+                full = await adapter.get_product(product.product_id)
+            except Exception:  # noqa: BLE001 — best-effort backfill
+                continue
+            if full and getattr(full, "variants", None):
+                product.variants = full.variants
+                product.option_names = full.option_names
+
+    async def _group_discovered_products(
+        self, ctx: ToolContext, raw_products: list[dict]
+    ) -> list[dict]:
+        """Collapse same-family listings (per agents.product_grouping) into
+        one merged result per family, per the standing "one card per
+        product family" rule. Falls back to ``raw_products`` unchanged if
+        any entry fails to validate (regression-safe no-op for the common
+        family-of-1 case).
+        """
+        try:
+            validated = [ProductResult.model_validate(p) for p in raw_products]
+        except Exception:  # noqa: BLE001 — malformed cache entry, skip grouping
+            return raw_products
+
+        await self._backfill_variants(ctx, validated)
+
+        families = group_into_families(validated)
+        merged: list[dict] = []
+        family_cache: dict[str, dict] = {}
+        for family in families:
+            primary_dict = family.primary.model_dump(mode="json")
+            primary_dict["option_names"] = list(family.option_names)
+            primary_dict["variants"] = [v.model_dump(mode="json") for v in family.variants]
+            merged.append(primary_dict)
+            if len(family.members) > 1:
+                family_cache[family.primary.product_id] = family.model_dump(mode="json")
+
+        ctx.session.product_families = family_cache
+        return merged
 
     async def _get_last_discovered(self, ctx: ToolContext) -> dict:
         """Return the most recent discovery cache, no re-search."""
@@ -448,6 +538,25 @@ class OrchestratorAgent(BaseAgent):
             "risk_flags": sorted({f for r in ranked for f in r.risk_flags}),
         }
 
+    async def _get_product_variants(
+        self, ctx: ToolContext, *, product_id: str, merchant_domain: str
+    ) -> dict:
+        family = ctx.session.product_families.get(product_id)
+        if family is not None:
+            variants = family.get("variants", [])
+            return {
+                "has_variants": bool(variants),
+                "option_names": family.get("option_names", []),
+                "variants": variants,
+            }
+        return await discovery_tools.get_product_variants(
+            ctx,
+            product_id=product_id,
+            merchant_domain=merchant_domain,
+            mandate_id=self.mandate_id,
+            agent="OrchestratorAgent",
+        )
+
     async def _add_to_cart(
         self,
         ctx: ToolContext,
@@ -455,18 +564,21 @@ class OrchestratorAgent(BaseAgent):
         product_id: str,
         merchant_domain: str,
         quantity: int,
-        name: str,
-        price,
-        image_url: str = "",
+        variant_id: str | None = None,
     ) -> dict:
         """Add a product to ``ctx.session.click_basket`` (the user's
         draft cart visible via the header cart icon + /cart drawer).
 
+        Self-fetches the product so name/price/image are authoritative —
+        the model never supplies them. If the product has variants and no
+        ``variant_id`` is given, returns ``error: "variant_required"`` with
+        the real ``option_names``/``variants`` for the model to present.
+
         Strictly distinct from ``call_purchase_agent``:
           - No HITL gate, no payment, no order, no spend.
-          - Idempotent at the (merchant_domain, product_id) level —
-            calling twice for the same product bumps the existing
-            line's quantity rather than duplicating it.
+          - Idempotent at the (merchant_domain, product_id, variant_id)
+            level — calling twice for the same product+variant bumps the
+            existing line's quantity rather than duplicating it.
           - Audits as ``add_to_cart`` so /audit shows the action.
           - If the web layer wired a ``cart_event_notifier`` on the
             ToolContext, push a ``cart_update`` event so the
@@ -478,14 +590,61 @@ class OrchestratorAgent(BaseAgent):
             qty = 1
         if qty < 1:
             qty = 1
-        try:
-            price_dec = Decimal(str(price))
-        except Exception:
-            price_dec = Decimal("0")
+
+        # A family-synthesized variant_id ("{member_id}:{member_variant_id}")
+        # may reference a sibling listing's variants — resolve via the
+        # family cache (set by ``_call_discovery``) before falling back to
+        # the single-product lookup. Family-of-1 products are never cached
+        # here, so this is a no-op for the common case.
+        family = ctx.session.product_families.get(product_id)
+        if family is not None:
+            primary = family.get("primary", {})
+            option_names = family.get("option_names", [])
+            variants = family.get("variants", [])
+            name = primary.get("name", product_id)
+            images = primary.get("images") or []
+            price_dec = Decimal(str(primary.get("price", "0")))
+        else:
+            product = await discovery_tools.get_product_details(
+                ctx,
+                product_id=product_id,
+                merchant_domain=merchant_domain,
+                mandate_id=self.mandate_id,
+                agent="OrchestratorAgent",
+            )
+            if product is None:
+                return {"added": False, "error": "product_not_found"}
+            option_names = product.option_names
+            variants = [v.model_dump(mode="json") for v in product.variants]
+            name = product.name
+            images = product.images
+            price_dec = product.price
+
+        image_url = images[0] if images else ""
+
+        selected_options: dict[str, str] = {}
+        if variants:
+            if not variant_id:
+                return {
+                    "added": False,
+                    "error": "variant_required",
+                    "option_names": option_names,
+                    "variants": variants,
+                }
+            matched = next((v for v in variants if v.get("variant_id") == variant_id), None)
+            if matched is None:
+                return {"added": False, "error": "invalid_variant"}
+            if matched.get("price") is not None:
+                price_dec = Decimal(str(matched["price"]))
+            selected_options = dict(matched.get("options") or {})
+            if matched.get("image"):
+                image_url = matched["image"]
+        else:
+            variant_id = None
 
         bucket = ctx.session.click_basket.setdefault(merchant_domain, [])
         for line in bucket:
-            if line.get("product_id") == product_id:
+            if line.get("product_id") == product_id and line.get("variant_id") == variant_id:
                 line["quantity"] = int(line["quantity"]) + qty
                 line["line_total"] = str(Decimal(str(line["price"])) * line["quantity"])
                 break
@@ -493,6 +652,8 @@ class OrchestratorAgent(BaseAgent):
             bucket.append(
                 {
                     "product_id": product_id,
+                    "variant_id": variant_id,
+                    "selected_options": selected_options,
                     "name": name,
                     "price": str(price_dec),
                     "currency": "USD",
@@ -513,6 +674,7 @@ class OrchestratorAgent(BaseAgent):
             args={
                 "merchant": merchant_domain,
                 "product_id": product_id,
+                "variant_id": variant_id,
                 "quantity": qty,
                 "name": name,
                 "price": str(price_dec),
@@ -535,6 +697,7 @@ class OrchestratorAgent(BaseAgent):
         return {
             "added": True,
             "product_id": product_id,
+            "variant_id": variant_id,
             "merchant_domain": merchant_domain,
             "quantity": qty,
         }

@@ -17,16 +17,19 @@ import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
 
 from agents.orchestrator import OrchestratorAgent
 from cli.confirmation import AutoConfirmProvider, GateResponse, classify_gate
 from cli.display import RichConfirmProvider
+from config.catalogue import LIVE_MERCHANTS, MERCHANTS
 from models.order import OrderStatus
 from tests.fake_anthropic import (
     FakeAnthropicClient,
     text_response,
     tool_use_response,
 )
+from tools import discovery_tools
 from tools.discovery_tools import get_product_details, search_products
 from tools.evaluation_tools import compare_prices, fetch_reviews, rank_products
 from tools.purchase_tools import (
@@ -1346,3 +1349,202 @@ def test_j120_orders_persist_in_db(tool_ctx):
     )
     rows = tool_ctx.db.orders.all()
     assert any(r["order_id"] == "ord_persist" for r in rows)
+
+
+# ===========================================================================
+# Section 9: Variant cart journeys (Phase 1, task 1.10)
+# ===========================================================================
+#
+# A shopper adds ONE variant product (resolving the real variant_id via
+# get_product_variants — mirrors a "modal POST" with a server-resolved
+# variant_id) AND ONE no-variant product to the cart in the same session.
+# Asserts two distinct click_basket lines and a correct combined total.
+# Parametrised across every demo merchant in `MERCHANTS` (CLAUDE.md rule 3)
+# plus the live merchant `kith.com` (mocked HTTP, see `kith_journey_ctx`).
+
+
+def _demo_variant_and_plain_ids(domain: str) -> tuple[str, str]:
+    variant_id = plain_id = None
+    for p in MERCHANTS[domain]:
+        if p.get("variants") and variant_id is None:
+            variant_id = p["id"]
+        elif not p.get("variants") and plain_id is None:
+            plain_id = p["id"]
+    assert variant_id and plain_id, f"{domain} missing variant/plain fixture products"
+    return variant_id, plain_id
+
+
+@pytest.mark.parametrize("domain", sorted(MERCHANTS))
+def test_j121_variant_and_no_variant_cart_journey(multi_merchant_ctx, domain):
+    """J121: add a variant product (size/color/etc — resolved via
+    get_product_variants) and a no-variant product to the same merchant's
+    cart. Two distinct lines, correct variant_id/selected_options on each,
+    and the combined total equals the sum of both line totals."""
+    ctx = multi_merchant_ctx
+    orch = OrchestratorAgent(
+        FakeAnthropicClient([]), confirmation=AutoConfirmProvider(), mandate_id="m_test"
+    )
+    variant_product_id, plain_product_id = _demo_variant_and_plain_ids(domain)
+
+    variants = asyncio.get_event_loop().run_until_complete(
+        discovery_tools.get_product_variants(
+            ctx, product_id=variant_product_id, merchant_domain=domain
+        )
+    )
+    assert variants["has_variants"] is True
+    target_variant = variants["variants"][0]
+
+    result_variant = asyncio.get_event_loop().run_until_complete(
+        orch._add_to_cart(
+            ctx,
+            product_id=variant_product_id,
+            merchant_domain=domain,
+            quantity=1,
+            variant_id=target_variant["variant_id"],
+        )
+    )
+    assert result_variant["added"] is True
+
+    result_plain = asyncio.get_event_loop().run_until_complete(
+        orch._add_to_cart(ctx, product_id=plain_product_id, merchant_domain=domain, quantity=1)
+    )
+    assert result_plain["added"] is True
+
+    bucket = ctx.session.click_basket[domain]
+    assert len(bucket) == 2
+
+    variant_line = next(line for line in bucket if line["product_id"] == variant_product_id)
+    plain_line = next(line for line in bucket if line["product_id"] == plain_product_id)
+
+    assert variant_line["variant_id"] == target_variant["variant_id"]
+    assert variant_line["selected_options"] == target_variant["options"]
+    assert plain_line["variant_id"] is None
+    assert plain_line["selected_options"] == {}
+
+    actual_total = sum(Decimal(str(line["line_total"])) for line in bucket)
+    expected_total = Decimal(str(variant_line["line_total"])) + Decimal(
+        str(plain_line["line_total"])
+    )
+    assert actual_total == expected_total
+
+
+@pytest.fixture
+def kith_journey_ctx(tmp_db, ap2, tmp_path):
+    """ToolContext with `kith.com` registered via a mocked
+    `LiveShopifyTransport` (no real network) — same pattern as
+    `tests/test_chat_variant_flow.py`."""
+    import httpx
+
+    from adapters.shopify_mcp import ShopifyMCPAdapter, StubShopifyTransport
+    from adapters.stripe import StripeAdapter
+    from gateway.merchant_gateway import MerchantGateway
+    from gateway.payment_gateway import PaymentGateway
+    from guardrails.confidence import ConfidenceChecker
+    from guardrails.spending import SpendingLimiter
+    from models.user import UserProfile
+    from storage.state import SessionState
+    from tests.fixtures.kith_products import make_kith_adapter
+    from tools.context import ToolContext
+    from ucp.discovery import UCPProfileDiscovery
+    from ucp.signing import RequestSigner, generate_keypair
+
+    stub_path = tmp_path / "profiles.json"
+    stub_path.write_text(json.dumps({"profiles": {}}))
+    offline_http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    discovery = UCPProfileDiscovery(tmp_db, http_client=offline_http, stub_path=stub_path)
+
+    private_pem, _, _ = generate_keypair("k1")
+    signer = RequestSigner(private_pem, key_id="k1")
+
+    direct_adapters = {}
+    for domain, seed in MERCHANTS.items():
+        direct_adapters[domain] = ShopifyMCPAdapter(
+            domain, StubShopifyTransport(seed_products=seed)
+        )
+    direct_adapters["kith.com"] = make_kith_adapter()
+
+    gateway = MerchantGateway(discovery=discovery, signer=signer, direct_adapters=direct_adapters)
+    stripe = StripeAdapter(api_key=None)
+    user = UserProfile(user_id="user_1", name="Alex", payment_method_id="pm_test_card")
+    session = SessionState(user_id=user.user_id)
+
+    return ToolContext(
+        db=tmp_db,
+        ap2=ap2,
+        merchant_gateway=gateway,
+        payment_gateway=PaymentGateway(ap2, stripe),
+        spending_limiter=SpendingLimiter(tmp_db),
+        confidence_checker=ConfidenceChecker(threshold=0.8),
+        user=user,
+        session=session,
+    )
+
+
+def test_j122_kith_variant_and_no_variant_cart_journey(kith_journey_ctx):
+    """J122: same as J121, for the live merchant kith.com (mocked HTTP) —
+    a Size+Color family product (Kith x New Balance 990v6) plus a no-variant
+    product (Kith Camp Cap)."""
+    from tests.fixtures.kith_products import KITH_990V6_GREY, KITH_CAMP_CAP
+
+    ctx = kith_journey_ctx
+    domain = "kith.com"
+    orch = OrchestratorAgent(
+        FakeAnthropicClient([]), confirmation=AutoConfirmProvider(), mandate_id="m_test"
+    )
+    variant_product_id = str(KITH_990V6_GREY["id"])
+    plain_product_id = str(KITH_CAMP_CAP["id"])
+
+    variants = asyncio.get_event_loop().run_until_complete(
+        discovery_tools.get_product_variants(
+            ctx, product_id=variant_product_id, merchant_domain=domain
+        )
+    )
+    assert variants["has_variants"] is True
+    target_variant = variants["variants"][0]
+
+    result_variant = asyncio.get_event_loop().run_until_complete(
+        orch._add_to_cart(
+            ctx,
+            product_id=variant_product_id,
+            merchant_domain=domain,
+            quantity=1,
+            variant_id=target_variant["variant_id"],
+        )
+    )
+    assert result_variant["added"] is True
+
+    result_plain = asyncio.get_event_loop().run_until_complete(
+        orch._add_to_cart(ctx, product_id=plain_product_id, merchant_domain=domain, quantity=1)
+    )
+    assert result_plain["added"] is True
+
+    bucket = ctx.session.click_basket[domain]
+    assert len(bucket) == 2
+
+    variant_line = next(line for line in bucket if line["product_id"] == variant_product_id)
+    plain_line = next(line for line in bucket if line["product_id"] == plain_product_id)
+
+    assert variant_line["variant_id"] == target_variant["variant_id"]
+    assert variant_line["selected_options"] == target_variant["options"]
+    assert plain_line["variant_id"] is None
+    assert plain_line["selected_options"] == {}
+
+    actual_total = sum(Decimal(str(line["line_total"])) for line in bucket)
+    expected_total = Decimal(str(variant_line["line_total"])) + Decimal(
+        str(plain_line["line_total"])
+    )
+    assert actual_total == expected_total
+
+
+@pytest.mark.parametrize("domain", sorted(set(MERCHANTS) | set(LIVE_MERCHANTS)))
+def test_j123_gateway_registration_covers_variant_cart_journey(domain):
+    """Documents that every domain in MERCHANTS/LIVE_MERCHANTS has a
+    variant-cart journey covering it: demo merchants via J121
+    (parametrised over MERCHANTS), kith.com via J122."""
+    if domain in MERCHANTS:
+        assert domain in MERCHANTS
+    else:
+        assert domain == "kith.com", (
+            f"New live merchant {domain!r} needs a J12x variant-cart journey "
+            f"in tests/test_user_journeys.py."
+        )

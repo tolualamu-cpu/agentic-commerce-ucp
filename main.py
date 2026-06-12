@@ -33,7 +33,7 @@ from decimal import Decimal
 
 from dotenv import load_dotenv
 
-from adapters.shopify_mcp import ShopifyMCPAdapter, StubShopifyTransport
+from adapters.shopify_mcp import LiveShopifyTransport, ShopifyMCPAdapter, StubShopifyTransport
 from adapters.stripe import StripeAdapter
 from agents.orchestrator import OrchestratorAgent, StreamingCallbacks
 from cli.display import (
@@ -49,7 +49,7 @@ from cli.display import (
     on_tool_end,
     on_tool_start,
 )
-from config.catalogue import MERCHANTS
+from config.catalogue import DEMO_MERCHANT_DISPLAY_NAMES, LIVE_MERCHANTS, MERCHANTS
 from config.settings import settings
 from gateway.merchant_gateway import MerchantGateway
 from gateway.payment_gateway import PaymentGateway
@@ -127,6 +127,17 @@ def _build_context(db: DB) -> tuple[ToolContext, str]:
         direct_adapters[domain] = ShopifyMCPAdapter(
             domain,
             StubShopifyTransport(seed_products=seed),
+            merchant_display_name=DEMO_MERCHANT_DISPLAY_NAMES.get(domain, domain),
+        )
+    for domain, meta in LIVE_MERCHANTS.items():
+        direct_adapters[domain] = ShopifyMCPAdapter(
+            domain,
+            LiveShopifyTransport(
+                meta["store_url"],
+                max_pages=meta.get("max_pages", 3),
+            ),
+            source_protocol="shopify_storefront",
+            merchant_display_name=meta.get("display_name", domain),
         )
 
     discovery = UCPProfileDiscovery(db)

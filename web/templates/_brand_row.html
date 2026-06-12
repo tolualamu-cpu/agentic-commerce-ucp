@@ -1,5 +1,7 @@
 {# Horizontal scroll of merchant tiles. Clicking a tile goes to
    /search?merchant=<domain> (existing route). Hidden in conversation mode.
+   `merchant_meta` (optional) maps domain → {display_name, logo_url} for
+   live merchants; demo merchants fall back to the SVG store icon.
 #}
 <section class="discovery-only max-w-7xl mx-auto px-4 mt-12">
   <div class="mb-4">
@@ -7,15 +9,25 @@
   </div>
   <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
     {% for m in merchants %}
+    {% set meta = (merchant_meta or {}).get(m, {}) %}
     <a href="/search?merchant={{ m }}"
        class="snap-start shrink-0 w-48 px-4 py-6 rounded-xl bg-white
               border border-slate-200 hover:border-slate-400 hover:shadow-sm
               transition text-center">
       <div class="flex justify-center mb-2">
+        {% if meta.get('logo_url') %}
+        <img src="{{ meta.logo_url }}" alt="{{ meta.display_name }}"
+             class="h-9 w-9 object-contain"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+        <div class="hidden">
+          {% with icon_class="w-9 h-9 text-slate-700" %}{% include "_store_icon.html" %}{% endwith %}
+        </div>
+        {% else %}
         {% with icon_class="w-9 h-9 text-slate-700" %}{% include "_store_icon.html" %}{% endwith %}
+        {% endif %}
       </div>
       <div class="text-sm font-medium text-slate-900 truncate">
-        {{ m.split('.')[0].replace('-', ' ').title() }}
+        {{ meta.get('display_name') or m.split('.')[0].replace('-', ' ').title() }}
       </div>
       <div class="text-[10px] text-slate-400 mt-1 truncate">{{ m }}</div>
     </a>

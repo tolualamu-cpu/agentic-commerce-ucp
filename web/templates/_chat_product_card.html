@@ -66,21 +66,54 @@
         {% endif %}
       </div>
 
-      {% if product.in_stock %}
-      <button
-        class="cart-toggle-btn text-xs px-2.5 py-1.5 rounded-lg font-medium
-               transition active:scale-95 whitespace-nowrap ml-2
-               {% if in_cart %}
-               bg-emerald-50 text-emerald-700 border border-emerald-200
-               hover:bg-red-50 hover:text-red-700 hover:border-red-200
-               {% else %}
-               bg-slate-900 text-white hover:bg-slate-700
-               {% endif %}"
-        onclick="event.stopPropagation()"
-        type="button">
-        {% if in_cart %}In cart ✕{% else %}Add to cart{% endif %}
-      </button>
-      {% endif %}
+      <div class="flex items-center gap-1.5">
+        {% if product.url and product.url.startswith('http') %}
+        <a href="{{ product.url }}" target="_blank" rel="noopener"
+           class="ucp-buy-badge"
+           onclick="event.stopPropagation()">
+          Buy on {{ product.merchant }}
+          <svg style="width:10px;height:10px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+        </a>
+        {% endif %}
+        {% if product.in_stock %}
+        {% if product.variants %}
+        <button
+          type="button"
+          class="text-xs px-2.5 py-1.5 rounded-lg font-medium
+                 transition active:scale-95 whitespace-nowrap
+                 bg-slate-900 text-white hover:bg-slate-700"
+          onclick="event.stopPropagation(); window.__openVariantPicker(this)"
+          data-product='{{ {
+            "product_id": product.product_id,
+            "merchant_domain": product.merchant_domain,
+            "name": product.name,
+            "price": product.price | string,
+            "image": (product.images[0] if product.images else None),
+            "option_names": product.option_names,
+            "variants": product.variants | variant_dicts,
+          } | tojson }}'>
+          Add to cart
+        </button>
+        {% else %}
+        <button
+          class="cart-toggle-btn text-xs px-2.5 py-1.5 rounded-lg font-medium
+                 transition active:scale-95 whitespace-nowrap
+                 {% if in_cart %}
+                 bg-emerald-50 text-emerald-700 border border-emerald-200
+                 hover:bg-red-50 hover:text-red-700 hover:border-red-200
+                 {% else %}
+                 bg-slate-900 text-white hover:bg-slate-700
+                 {% endif %}"
+          onclick="event.stopPropagation()"
+          type="button">
+          {% if in_cart %}In cart ✕{% else %}Add to cart{% endif %}
+        </button>
+        {% endif %}
+        {% endif %}
+      </div>
     </div>
   </div>
 </article>

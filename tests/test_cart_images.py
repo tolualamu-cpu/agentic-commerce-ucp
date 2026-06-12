@@ -48,6 +48,7 @@ def _sess(client) -> "session_mod.WebSession":
 # Catalogue products that are seeded (image_url will come from their images[0])
 _SHOE_MERCHANT = "athletic-co.myshopify.com"
 _SHOE_ID = "ath_001"
+_SHOE_VARIANT_ID = "ath_001-8"
 _MUG_MERCHANT = "coffee-bar.myshopify.com"
 _MUG_ID = "cof_001"
 
@@ -59,7 +60,7 @@ class TestCartItemStoresImageUrl:
     def test_image_url_field_present_after_add(self, client):
         """Cart item dict must include image_url after POST /cart/add."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         sess = _sess(client)
         items = sess.ctx.session.click_basket.get(_SHOE_MERCHANT, [])
         shoe = next((i for i in items if i["product_id"] == _SHOE_ID), None)
@@ -71,7 +72,7 @@ class TestCartItemStoresImageUrl:
     def test_image_url_is_https_string(self, client):
         """image_url must be a non-empty https:// URL."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         sess = _sess(client)
         items = sess.ctx.session.click_basket.get(_SHOE_MERCHANT, [])
         shoe = next(i for i in items if i["product_id"] == _SHOE_ID)
@@ -86,7 +87,7 @@ class TestCartItemStoresImageUrl:
 
         expected = next(p["images"][0] for p in ATHLETIC_CO if p["id"] == _SHOE_ID)
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         sess = _sess(client)
         items = sess.ctx.session.click_basket.get(_SHOE_MERCHANT, [])
         shoe = next(i for i in items if i["product_id"] == _SHOE_ID)
@@ -97,7 +98,7 @@ class TestCartItemStoresImageUrl:
     def test_existing_fields_still_present(self, client):
         """Adding image_url must not remove the 6 original cart fields."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         sess = _sess(client)
         items = sess.ctx.session.click_basket.get(_SHOE_MERCHANT, [])
         shoe = next(i for i in items if i["product_id"] == _SHOE_ID)
@@ -114,8 +115,8 @@ class TestCartItemStoresImageUrl:
     def test_quantity_bump_preserves_image_url(self, client):
         """Adding the same product twice bumps quantity but keeps image_url."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         sess = _sess(client)
         items = sess.ctx.session.click_basket.get(_SHOE_MERCHANT, [])
         shoe = next(i for i in items if i["product_id"] == _SHOE_ID)
@@ -139,7 +140,8 @@ class TestCartItemStoresImageUrl:
 
 class TestOrchestratorAddToCartImageUrl:
     def test_add_to_cart_tool_stores_image_url(self, tool_ctx):
-        """Orchestrator's _add_to_cart tool stores image_url in basket."""
+        """Orchestrator's _add_to_cart tool derives image_url from the
+        product's own catalogue images (server-side, never client-supplied)."""
         from agents.orchestrator import OrchestratorAgent
         from cli.confirmation import AutoConfirmProvider
         from tests.fake_anthropic import FakeAnthropicClient
@@ -149,51 +151,86 @@ class TestOrchestratorAddToCartImageUrl:
             confirmation=AutoConfirmProvider(),
             mandate_id="m_test",
         )
-        asyncio.get_event_loop().run_until_complete(
+        result = asyncio.get_event_loop().run_until_complete(
             orch._add_to_cart(
                 tool_ctx,
-                product_id="ath_001",
-                merchant_domain="athletic-co.myshopify.com",
+                product_id="shop_001",
+                merchant_domain="demo-shop.myshopify.com",
                 quantity=1,
-                name="Demo Running Shoes",
-                price="129.99",
-                image_url="https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80",
             )
         )
-        items = tool_ctx.session.click_basket.get("athletic-co.myshopify.com", [])
-        shoe = next((i for i in items if i["product_id"] == "ath_001"), None)
+        assert result["added"] is True
+        items = tool_ctx.session.click_basket.get("demo-shop.myshopify.com", [])
+        shoe = next((i for i in items if i["product_id"] == "shop_001"), None)
         assert shoe is not None
-        assert (
-            shoe["image_url"]
-            == "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80"
-        )
+        assert shoe["image_url"] == "https://example.com/shoe.jpg"
 
-    def test_add_to_cart_tool_defaults_image_url_empty(self, tool_ctx):
-        """image_url defaults to empty string when not provided."""
+    def test_add_to_cart_tool_no_variant_returns_variant_required(self, tool_ctx):
+        """A product with size/color variants — omitting variant_id must not
+        add to the cart and must return the real options instead of guessing."""
         from agents.orchestrator import OrchestratorAgent
         from cli.confirmation import AutoConfirmProvider
         from tests.fake_anthropic import FakeAnthropicClient
+        from adapters.shopify_mcp import ShopifyMCPAdapter, StubShopifyTransport
 
         orch = OrchestratorAgent(
             client=FakeAnthropicClient([]),
             confirmation=AutoConfirmProvider(),
             mandate_id="m_test",
         )
-        asyncio.get_event_loop().run_until_complete(
+        # Wire a variant-bearing product into the existing demo-shop adapter.
+        adapter = tool_ctx.merchant_gateway.direct_adapters["demo-shop.myshopify.com"]
+        assert isinstance(adapter, ShopifyMCPAdapter)
+        assert isinstance(adapter.transport, StubShopifyTransport)
+        adapter.transport.products.append(
+            {
+                "id": "shop_002",
+                "title": "Demo Variant Shoes",
+                "price": "99.99",
+                "currency": "USD",
+                "vendor": "Demo Brand",
+                "available": True,
+                "rating": 4.5,
+                "review_count": 10,
+                "images": ["https://example.com/variant-shoe.jpg"],
+                "options": ["Size"],
+                "variants": [
+                    {
+                        "id": "shop_002-8",
+                        "title": "8",
+                        "price": "99.99",
+                        "available": True,
+                        "sku": "DEMO-002-8",
+                        "option1": "8",
+                        "option2": None,
+                    },
+                    {
+                        "id": "shop_002-9",
+                        "title": "9",
+                        "price": "99.99",
+                        "available": True,
+                        "sku": "DEMO-002-9",
+                        "option1": "9",
+                        "option2": None,
+                    },
+                ],
+            }
+        )
+
+        result = asyncio.get_event_loop().run_until_complete(
             orch._add_to_cart(
                 tool_ctx,
-                product_id="ath_001",
-                merchant_domain="athletic-co.myshopify.com",
+                product_id="shop_002",
+                merchant_domain="demo-shop.myshopify.com",
                 quantity=1,
-                name="Demo Running Shoes",
-                price="129.99",
-                # no image_url kwarg
             )
         )
-        items = tool_ctx.session.click_basket.get("athletic-co.myshopify.com", [])
-        shoe = next(i for i in items if i["product_id"] == "ath_001")
-        assert "image_url" in shoe
-        assert shoe["image_url"] == ""
+        assert result["added"] is False
+        assert result["error"] == "variant_required"
+        assert result["option_names"] == ["Size"]
+        assert result["variants"]
+        items = tool_ctx.session.click_basket.get("demo-shop.myshopify.com", [])
+        assert not any(i["product_id"] == "shop_002" for i in items)
 
 
 # ─── Template: cart drawer renders thumbnail ────────────────────────────────
@@ -203,7 +240,7 @@ class TestCartDrawerRendersImage:
     def test_drawer_contains_img_tag_when_item_has_image(self, client):
         """Cart drawer HTML must have <img> when item has image_url."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         r = client.get("/cart", headers={"HX-Request": "true"})
         assert r.status_code == 200
         assert "<img" in r.text, "Cart drawer must render <img> tag for items with image_url"
@@ -211,28 +248,28 @@ class TestCartDrawerRendersImage:
     def test_drawer_references_unsplash_url(self, client):
         """The rendered thumbnail src must be the Unsplash URL."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         r = client.get("/cart", headers={"HX-Request": "true"})
         assert "unsplash.com" in r.text
 
     def test_drawer_renders_emoji_fallback_in_onerror(self, client):
         """img tag must have onerror fallback for broken URLs."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         r = client.get("/cart", headers={"HX-Request": "true"})
         assert "onerror" in r.text
 
     def test_drawer_still_shows_product_name(self, client):
         """Adding image must not break the product name display."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         r = client.get("/cart", headers={"HX-Request": "true"})
         assert "Demo Running Shoes" in r.text
 
     def test_drawer_still_shows_price_and_quantity(self, client):
         """Existing price/quantity display must be unchanged."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         r = client.get("/cart", headers={"HX-Request": "true"})
         assert "129.99" in r.text
         assert "× 1" in r.text or "×" in r.text
@@ -240,7 +277,7 @@ class TestCartDrawerRendersImage:
     def test_full_cart_page_also_shows_image(self, client):
         """The full /cart page (not just drawer) renders the thumbnail."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         r = client.get("/cart")
         assert r.status_code == 200
         assert "unsplash.com" in r.text
@@ -248,7 +285,7 @@ class TestCartDrawerRendersImage:
     def test_multiple_items_each_get_thumbnail(self, client):
         """Two different items both render distinct thumbnail <img> tags."""
         client.get("/")
-        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}")
+        client.post(f"/cart/add/{_SHOE_MERCHANT}/{_SHOE_ID}", data={"variant_id": _SHOE_VARIANT_ID})
         client.post(f"/cart/add/{_MUG_MERCHANT}/{_MUG_ID}")
         r = client.get("/cart", headers={"HX-Request": "true"})
         assert r.text.count("<img") >= 2, "Each cart line item must have its own thumbnail <img>"

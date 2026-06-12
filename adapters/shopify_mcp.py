@@ -12,10 +12,15 @@ returns UCP-vocabulary types (ProductResult, CheckoutSession, PurchaseOrder).
 
 from __future__ import annotations
 
+import html as _html
+import re as _re
+import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Protocol
+
+import httpx
 
 from gateway.base import MerchantClient
 from models.order import (
@@ -26,7 +31,7 @@ from models.order import (
     PurchaseOrder,
     TrackingInfo,
 )
-from models.product import CartItem, ProductResult
+from models.product import CartItem, ProductResult, ProductVariant
 from models.ucp_profile import PaymentHandler
 
 
@@ -48,9 +53,21 @@ class ShopifyMCPAdapter(MerchantClient):
         PaymentHandler(id="stripe", name="Stripe", spec_url="https://stripe.com/docs/api"),
     ]
 
-    def __init__(self, merchant_domain: str, transport: ShopifyTransport):
+    def __init__(
+        self,
+        merchant_domain: str,
+        transport: ShopifyTransport,
+        source_protocol: str = "shopify_mcp",
+        merchant_display_name: str | None = None,
+    ):
         self.merchant_domain = merchant_domain
         self.transport = transport
+        self._source_protocol = source_protocol
+        # The STOREFRONT name to put on every ProductResult.merchant — never
+        # the brand/vendor. If not provided, fall back to the domain. The
+        # gateway/factory layer is responsible for passing the right name
+        # (looked up from LIVE_MERCHANTS or the demo catalogue).
+        self._merchant_display_name = merchant_display_name or merchant_domain
 
     # ── search ────────────────────────────────────────────────────────────────
 
@@ -65,14 +82,22 @@ class ShopifyMCPAdapter(MerchantClient):
         return self._to_product(raw) if raw else None
 
     def _to_product(self, p: dict) -> ProductResult:
+        # UCP RULE — merchant = STOREFRONT (Kith), brand = vendor (Stone Island).
+        # NEVER conflate them: previously merchant was set to p["vendor"] which
+        # made "Buy on Stone Island" badges that linked to kith.com. The
+        # storefront name is sourced from the adapter's display name (passed
+        # in by the gateway via LIVE_MERCHANTS lookup), with the domain as
+        # the final fallback.
+        variants, option_names = _normalise_variants(p.get("variants"), p.get("options"))
         return ProductResult(
             product_id=str(p["id"]),
             name=p.get("title") or p.get("name", ""),
             description=p.get("description"),
             price=Decimal(str(p.get("price", "0"))),
             currency=p.get("currency", "USD"),
-            merchant=p.get("vendor", self.merchant_domain),
+            merchant=self._merchant_display_name,
             merchant_domain=self.merchant_domain,
+            brand=p.get("vendor"),
             rating=p.get("rating"),
             review_count=p.get("review_count"),
             shipping_estimate=p.get("shipping_estimate"),
@@ -82,7 +107,9 @@ class ShopifyMCPAdapter(MerchantClient):
                 img if isinstance(img, str) else img.get("src", "") for img in p.get("images", [])
             ],
             attributes=p.get("attributes", {}),
-            source_protocol="shopify_mcp",
+            variants=variants,
+            option_names=option_names,
+            source_protocol=self._source_protocol,
         )
 
     # ── checkout (Shopify cart maps to UCP CheckoutSession) ───────────────────
@@ -322,3 +349,265 @@ class StubShopifyTransport:
 
     async def get_order(self, order_id: str) -> dict:
         return self.orders.get(order_id, {"status": "pending"})
+
+
+# ── Helpers for LiveShopifyTransport ─────────────────────────────────────
+
+_TAG_RE = _re.compile(r"<[^>]+>")
+
+
+def _strip_html(raw: str | None) -> str:
+    """Convert Shopify body_html to plain text."""
+    if not raw:
+        return ""
+    text = _html.unescape(_TAG_RE.sub(" ", raw))
+    return " ".join(text.split())[:500]
+
+
+def _normalise_variants(
+    raw_variants: list[dict] | None, raw_options: list | None
+) -> tuple[list[ProductVariant], list[str]]:
+    """Convert Shopify-style ``variants``/``options`` into canonical types.
+
+    A single variant with ``option1 == "Default Title"`` (Shopify's sentinel
+    for a product with no real variant dimensions) — or no recognised option
+    names at all — normalises to ``([], [])``: single-SKU, no picker.
+    """
+    raw_variants = raw_variants or []
+    raw_options = raw_options or []
+
+    if not raw_variants:
+        return [], []
+
+    if len(raw_variants) == 1 and raw_variants[0].get("option1") in (None, "Default Title"):
+        return [], []
+
+    option_names: list[str] = []
+    for opt in raw_options:
+        name = opt.get("name") if isinstance(opt, dict) else opt
+        if name and name != "Title":
+            option_names.append(name)
+
+    if not option_names:
+        return [], []
+
+    try:
+        base_price = min(Decimal(str(v.get("price", "0"))) for v in raw_variants)
+    except Exception:
+        base_price = None
+
+    variants: list[ProductVariant] = []
+    for v in raw_variants:
+        opts: dict[str, str] = {}
+        for i, name in enumerate(option_names, start=1):
+            val = v.get(f"option{i}")
+            if val is not None and val != "Default Title":
+                opts[name] = val
+        try:
+            v_price = Decimal(str(v.get("price", "0")))
+        except Exception:
+            v_price = None
+        price = v_price if (v_price is not None and v_price != base_price) else None
+        image = v.get("image")
+        if isinstance(image, dict):
+            image = image.get("src")
+        variants.append(
+            ProductVariant(
+                variant_id=str(v.get("id")),
+                sku=v.get("sku") or None,
+                options=opts,
+                price=price,
+                in_stock=v.get("available", True),
+                image=image if isinstance(image, str) else None,
+            )
+        )
+    return variants, option_names
+
+
+def _shopify_product_to_dict(product: dict, store_url: str) -> dict:
+    """Map a Shopify /products.json entry to the internal dict shape."""
+    variants = product.get("variants") or []
+    available = any(v.get("available", False) for v in variants)
+    if variants:
+        try:
+            price = min(Decimal(str(v.get("price", "0"))) for v in variants)
+        except Exception:
+            price = variants[0].get("price", "0")
+    else:
+        price = "0"
+    images_raw = product.get("images") or []
+    images = [
+        img["src"] if isinstance(img, dict) else img
+        for img in images_raw
+        if (img.get("src") if isinstance(img, dict) else img)
+    ]
+    handle = product.get("handle", "")
+    return {
+        "id": str(product["id"]),
+        "title": product.get("title", ""),
+        "price": str(price),
+        "currency": "USD",
+        "vendor": product.get("vendor", ""),
+        "available": available,
+        "description": _strip_html(product.get("body_html")),
+        "images": images,
+        "url": f"{store_url}/products/{handle}" if handle else None,
+        "variants": variants,
+        "options": product.get("options") or [],
+        "attributes": {
+            k: v
+            for k, v in {
+                "product_type": product.get("product_type", ""),
+                "handle": handle,
+            }.items()
+            if v
+        },
+    }
+
+
+class LiveShopifyTransport:
+    """Fetches real products from a Shopify store's public /products.json.
+
+    Products are cached in-memory with a configurable TTL (default 5 min).
+    Cart operations use local in-memory storage — actual purchasing happens
+    on the merchant's own site.
+    """
+
+    def __init__(
+        self,
+        store_url: str,
+        *,
+        max_pages: int = 3,
+        cache_ttl: int = 300,
+        http_client: httpx.AsyncClient | None = None,
+    ):
+        self.store_url = store_url.rstrip("/")
+        self.max_pages = max_pages
+        self.cache_ttl = cache_ttl
+        self._http = http_client
+        self._owns_http = http_client is None
+
+        self._products: list[dict] = []
+        self._products_by_id: dict[str, dict] = {}
+        self._cache_expires: float = 0
+
+        self.carts: dict[str, dict] = {}
+        self.orders: dict[str, dict] = {}
+
+    async def _ensure_http(self) -> httpx.AsyncClient:
+        if self._http is None:
+            self._http = httpx.AsyncClient(
+                timeout=15.0,
+                headers={"User-Agent": "AgenticCommerce/1.0 (UCP Research)"},
+                follow_redirects=True,
+            )
+        return self._http
+
+    async def _fetch_products(self) -> None:
+        """Fetch products from the Shopify store, paginating up to max_pages."""
+        now = time.time()
+        if self._products and now < self._cache_expires:
+            return
+
+        client = await self._ensure_http()
+        all_products: list[dict] = []
+        for page in range(1, self.max_pages + 1):
+            url = f"{self.store_url}/products.json?limit=50&page={page}"
+            try:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception:
+                break
+            batch = data.get("products", [])
+            if not batch:
+                break
+            for raw in batch:
+                all_products.append(_shopify_product_to_dict(raw, self.store_url))
+
+        if all_products:
+            self._products = all_products
+            self._products_by_id = {p["id"]: p for p in all_products}
+            self._cache_expires = now + self.cache_ttl
+
+    async def search_products(self, query: str, filters: dict, limit: int) -> list[dict]:
+        await self._fetch_products()
+        if not query:
+            return self._products[:limit]
+        q = query.lower()
+        hits = [
+            p
+            for p in self._products
+            if q in p["title"].lower()
+            or q in (p.get("description") or "").lower()
+            or q in (p.get("vendor") or "").lower()
+            or q in (p.get("attributes", {}).get("product_type", "")).lower()
+        ]
+        return hits[:limit] if hits else self._products[:limit]
+
+    async def get_product(self, product_id: str) -> dict | None:
+        await self._fetch_products()
+        return self._products_by_id.get(product_id)
+
+    async def create_cart(self) -> dict:
+        cart_id = f"cart_{uuid.uuid4().hex[:12]}"
+        self.carts[cart_id] = {
+            "id": cart_id,
+            "items": [],
+            "subtotal": "0",
+            "total": "0",
+            "currency": "USD",
+            "status": "open",
+        }
+        return self.carts[cart_id]
+
+    async def update_cart(self, cart_id: str, items: list[dict], buyer: dict | None) -> dict:
+        cart = self.carts.setdefault(
+            cart_id, {"id": cart_id, "items": [], "currency": "USD", "status": "open"}
+        )
+        normalised = []
+        for raw in items:
+            try:
+                price = Decimal(str(raw.get("price", "0")))
+            except Exception:
+                price = Decimal("0")
+            try:
+                qty = int(raw.get("quantity", 1))
+            except Exception:
+                qty = 1
+            if qty <= 0:
+                continue
+            normalised.append(
+                {
+                    "product_id": str(raw.get("product_id", "")),
+                    "name": str(raw.get("name", "")),
+                    "price": str(price),
+                    "quantity": qty,
+                    "line_total": str(price * qty),
+                }
+            )
+        cart["items"] = normalised
+        subtotal = sum(
+            (Decimal(i["price"]) * i["quantity"] for i in normalised),
+            start=Decimal("0"),
+        )
+        tax = subtotal * Decimal("0.08")
+        cart["subtotal"] = str(subtotal)
+        cart["tax"] = str(tax)
+        cart["total"] = str(subtotal + tax)
+        cart["buyer"] = buyer
+        return cart
+
+    async def complete_cart(self, cart_id: str, payment_token: str) -> dict:
+        raise NotImplementedError(
+            "Live Shopify stores require purchasing on the merchant's website. "
+            "Use the product URL to complete your purchase."
+        )
+
+    async def get_order(self, order_id: str) -> dict:
+        return self.orders.get(order_id, {"status": "pending"})
+
+    async def close(self) -> None:
+        if self._owns_http and self._http is not None:
+            await self._http.aclose()
+            self._http = None

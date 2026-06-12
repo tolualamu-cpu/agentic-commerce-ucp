@@ -748,13 +748,13 @@ def test_click_to_add_updates_session():
         try:
             r1 = await ac.post(
                 f"/cart/add/{MERCHANT}/ath_007",
-                data={"quantity": "2"},
+                data={"quantity": "2", "variant_id": "ath_007-8-Standard"},
             )
             assert r1.status_code == 200
 
             r2 = await ac.post(
                 f"/cart/add/{MERCHANT}/ath_001",
-                data={"quantity": "1"},
+                data={"quantity": "1", "variant_id": "ath_001-8"},
             )
             assert r2.status_code == 200
 
@@ -850,7 +850,7 @@ def test_click_then_review_purchase_runs_gate():
             # Two clicks add items to the draft cart
             await ac.post(
                 f"/cart/add/{MERCHANT}/ath_007",
-                data={"quantity": "3"},
+                data={"quantity": "3", "variant_id": "ath_007-8-Standard"},
             )
 
             # Script for the "buy these" turn — same script as happy path

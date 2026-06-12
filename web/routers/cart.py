@@ -34,11 +34,15 @@ def _items_for(sess: WebSession, merchant_domain: str) -> list:
     return sess.click_basket.setdefault(merchant_domain, [])
 
 
-def _find(items: list, product_id: str) -> Optional[dict]:
+def _find(items: list, product_id: str, variant_id: Optional[str] = None) -> Optional[dict]:
     for it in items:
-        if it["product_id"] == product_id:
+        if it["product_id"] == product_id and it.get("variant_id") == variant_id:
             return it
     return None
+
+
+def _format_options(selected_options: dict) -> str:
+    return ", ".join(f"{k}: {v}" for k, v in selected_options.items())
 
 
 def _recompute_line_total(item: dict) -> None:
@@ -107,12 +111,14 @@ async def add_to_cart(
     merchant_domain: str,
     product_id: str,
     quantity: int = Form(1),
+    variant_id: Optional[str] = Form(None),
     sess: WebSession = Depends(get_or_create_session),
 ):
     """Append a product to the draft basket.
 
-    Idempotent at the product level — adding the same product again bumps
-    the quantity rather than duplicating the line.
+    Idempotent at the (product, variant) level — adding the same
+    product/variant again bumps the quantity rather than duplicating
+    the line.
     """
     if quantity < 1:
         return _render_drawer(request, sess, status=400, flash="Quantity must be at least 1.")
@@ -128,24 +134,75 @@ async def add_to_cart(
             request, sess, status=404, flash="That product is no longer available."
         )
 
+    # A family-synthesized variant_id ("{member_id}:{member_variant_id}") may
+    # reference a sibling listing's variants — resolve via the family cache
+    # (set by ``_group_discovered_products``) before falling back to the
+    # single-product lookup, mirroring ``orchestrator._add_to_cart``.
+    # Family-of-1 products are never cached here, so this is a no-op for the
+    # common (non-grouped) case.
+    family = sess.ctx.session.product_families.get(product_id)
+    if family is not None:
+        primary = family.get("primary", {})
+        variants = family.get("variants", [])
+        display_name = primary.get("name") or product.name
+        display_images = primary.get("images") or product.images
+        base_price = Decimal(str(primary.get("price", product.price)))
+    else:
+        variants = [v.model_dump(mode="json") for v in product.variants]
+        display_name = product.name
+        display_images = product.images
+        base_price = product.price
+
+    selected_options: dict = {}
+    price = base_price
+    if variants:
+        if not variant_id:
+            return _render_drawer(
+                request,
+                sess,
+                status=400,
+                flash="Please choose options before adding to cart.",
+            )
+        matched = next((v for v in variants if v.get("variant_id") == variant_id), None)
+        if matched is None:
+            return _render_drawer(
+                request, sess, status=400, flash="That option is no longer available."
+            )
+        if matched.get("in_stock") is False:
+            return _render_drawer(
+                request, sess, status=400, flash="That option is currently out of stock."
+            )
+        selected_options = dict(matched.get("options") or {})
+        if matched.get("price") is not None:
+            price = Decimal(str(matched["price"]))
+        if matched.get("image"):
+            display_images = [matched["image"]]
+    else:
+        variant_id = None
+
     items = _items_for(sess, merchant_domain)
-    existing = _find(items, product_id)
+    existing = _find(items, product_id, variant_id)
+    options_suffix = f" ({_format_options(selected_options)})" if selected_options else ""
     if existing:
         existing["quantity"] = int(existing["quantity"]) + quantity
         _recompute_line_total(existing)
-        note = f"increased {product.name} quantity to {existing['quantity']}"
+        note = f"increased {display_name}{options_suffix} quantity to {existing['quantity']}"
     else:
         item = {
             "product_id": product.product_id,
-            "name": product.name,
-            "price": str(product.price),
+            "variant_id": variant_id,
+            "name": display_name,
+            "price": str(price),
             "currency": product.currency,
             "quantity": quantity,
-            "line_total": str(Decimal(str(product.price)) * quantity),
-            "image_url": product.images[0] if product.images else "",
+            "line_total": str(Decimal(str(price)) * quantity),
+            "image_url": display_images[0] if display_images else "",
+            "url": product.url or "",
+            "merchant_name": product.merchant or "",
+            "selected_options": selected_options,
         }
         items.append(item)
-        note = f"added {product.name} × {quantity}"
+        note = f"added {display_name}{options_suffix} × {quantity}"
 
     append_click_note(sess.ctx, note)
     action = "updated" if existing else "added"
@@ -157,8 +214,8 @@ async def add_to_cart(
                     "action": action,
                     "note": note,
                     "product_id": product.product_id,
-                    "name": product.name,
-                    "image_url": product.images[0] if product.images else "",
+                    "name": display_name,
+                    "image_url": display_images[0] if display_images else "",
                     "merchant_domain": merchant_domain,
                     "quantity": quantity,
                 },
@@ -168,7 +225,7 @@ async def add_to_cart(
         pass
     _push_cart_update(sess)
 
-    return _render_drawer(request, sess, flash=f"Added: {product.name}")
+    return _render_drawer(request, sess, flash=f"Added: {display_name}")
 
 
 # ─── POST /cart/remove/{merchant}/{product_id} ───────────────────────────
@@ -179,10 +236,11 @@ async def remove_from_cart(
     request: Request,
     merchant_domain: str,
     product_id: str,
+    variant_id: Optional[str] = Form(None),
     sess: WebSession = Depends(get_or_create_session),
 ):
     items = _items_for(sess, merchant_domain)
-    existing = _find(items, product_id)
+    existing = _find(items, product_id, variant_id)
     if existing is None:
         # Silent no-op — equivalent to clicking remove on a freshly-cleared
         # cart from a stale tab.
@@ -221,10 +279,11 @@ async def change_quantity(
     merchant_domain: str,
     product_id: str,
     quantity: int = Form(...),
+    variant_id: Optional[str] = Form(None),
     sess: WebSession = Depends(get_or_create_session),
 ):
     items = _items_for(sess, merchant_domain)
-    existing = _find(items, product_id)
+    existing = _find(items, product_id, variant_id)
     if existing is None:
         return _render_drawer(request, sess, status=404, flash="Item is no longer in your cart.")
     item_name = existing["name"]

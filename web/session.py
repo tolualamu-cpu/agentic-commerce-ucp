@@ -29,10 +29,10 @@ from typing import Optional
 from fastapi import Request, Response
 from itsdangerous import BadSignature, URLSafeSerializer
 
-from adapters.shopify_mcp import ShopifyMCPAdapter, StubShopifyTransport
+from adapters.shopify_mcp import LiveShopifyTransport, ShopifyMCPAdapter, StubShopifyTransport
 from adapters.stripe import StripeAdapter
 from agents.orchestrator import OrchestratorAgent, StreamingCallbacks
-from config.catalogue import MERCHANTS
+from config.catalogue import DEMO_MERCHANT_DISPLAY_NAMES, LIVE_MERCHANTS, MERCHANTS
 from config.settings import settings
 from gateway.merchant_gateway import MerchantGateway
 from gateway.payment_gateway import PaymentGateway
@@ -176,6 +176,17 @@ def _make_session(session_id: str) -> WebSession:
         direct_adapters[domain] = ShopifyMCPAdapter(
             domain,
             StubShopifyTransport(seed_products=seed),
+            merchant_display_name=DEMO_MERCHANT_DISPLAY_NAMES.get(domain, domain),
+        )
+    for domain, meta in LIVE_MERCHANTS.items():
+        direct_adapters[domain] = ShopifyMCPAdapter(
+            domain,
+            LiveShopifyTransport(
+                meta["store_url"],
+                max_pages=meta.get("max_pages", 3),
+            ),
+            source_protocol="shopify_storefront",
+            merchant_display_name=meta.get("display_name", domain),
         )
     # Longer cache TTLs for the demo: merchant profiles are static stubs, so
     # there's no benefit to the spec-default 60s re-discovery cadence. This keeps

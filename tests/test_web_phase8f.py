@@ -154,19 +154,17 @@ class TestAddToCartTool:
         result = asyncio.run(
             orch._add_to_cart(
                 tool_ctx,
-                product_id="cof_001",
-                merchant_domain="coffee-bar.myshopify.com",
+                product_id="shop_001",
+                merchant_domain="demo-shop.myshopify.com",
                 quantity=2,
-                name="Ceramic Coffee Mug",
-                price="12.00",
             )
         )
         assert result["added"] is True
-        items = tool_ctx.session.click_basket.get("coffee-bar.myshopify.com")
+        items = tool_ctx.session.click_basket.get("demo-shop.myshopify.com")
         assert items and len(items) == 1
-        assert items[0]["product_id"] == "cof_001"
+        assert items[0]["product_id"] == "shop_001"
         assert items[0]["quantity"] == 2
-        assert items[0]["line_total"] == "24.00"
+        assert items[0]["line_total"] == "259.98"
 
     def test_idempotent_bumps_quantity(self, tool_ctx):
         orch = OrchestratorAgent(
@@ -177,24 +175,20 @@ class TestAddToCartTool:
         asyncio.run(
             orch._add_to_cart(
                 tool_ctx,
-                product_id="cof_001",
-                merchant_domain="coffee-bar.myshopify.com",
+                product_id="shop_001",
+                merchant_domain="demo-shop.myshopify.com",
                 quantity=1,
-                name="Mug",
-                price="12.00",
             )
         )
         asyncio.run(
             orch._add_to_cart(
                 tool_ctx,
-                product_id="cof_001",
-                merchant_domain="coffee-bar.myshopify.com",
+                product_id="shop_001",
+                merchant_domain="demo-shop.myshopify.com",
                 quantity=2,
-                name="Mug",
-                price="12.00",
             )
         )
-        items = tool_ctx.session.click_basket["coffee-bar.myshopify.com"]
+        items = tool_ctx.session.click_basket["demo-shop.myshopify.com"]
         assert len(items) == 1, "should bump quantity, not duplicate"
         assert items[0]["quantity"] == 3
 
@@ -212,11 +206,9 @@ class TestAddToCartTool:
         asyncio.run(
             orch._add_to_cart(
                 tool_ctx,
-                product_id="cof_001",
-                merchant_domain="coffee-bar.myshopify.com",
+                product_id="shop_001",
+                merchant_domain="demo-shop.myshopify.com",
                 quantity=5,
-                name="Mug",
-                price="12.00",
             )
         )
         after_orders = len(tool_ctx.db.orders.all())
@@ -235,11 +227,9 @@ class TestAddToCartTool:
         asyncio.run(
             orch._add_to_cart(
                 tool_ctx,
-                product_id="cof_001",
-                merchant_domain="coffee-bar.myshopify.com",
+                product_id="shop_001",
+                merchant_domain="demo-shop.myshopify.com",
                 quantity=1,
-                name="Mug",
-                price="12.00",
             )
         )
         after = tool_ctx.db.audit_log.all()

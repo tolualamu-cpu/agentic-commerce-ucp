@@ -194,8 +194,12 @@ class TestCartBadgeResyncRoute:
         """After adding items (the badge may have been missed live), the FIRST
         frame on a new /chat/stream is the absolute count — so the badge always
         converges to correct on any page load / navigation / reconnect."""
+        variant_ids = {"ath_001": "ath_001-8", "aud_001": "aud_001-Black"}
         for domain, pid in adds:
-            r = client.post(f"/cart/add/{domain}/{pid}", headers={"HX-Request": "true"})
+            data = {}
+            if pid in variant_ids:
+                data["variant_id"] = variant_ids[pid]
+            r = client.post(f"/cart/add/{domain}/{pid}", data=data, headers={"HX-Request": "true"})
             assert r.status_code in (200, 201, 202)
 
         frame = self._resync(client)

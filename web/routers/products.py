@@ -74,12 +74,24 @@ async def home(request: Request, sess: WebSession = Depends(get_or_create_sessio
     )
     spent_day, _ = sess.ctx.ap2._compute_spend(sess.mandate_id, datetime.now(timezone.utc))
     mandate = sess.ctx.ap2.get_mandate(sess.mandate_id)
+    # Build merchant metadata for the brand row (logo, display name).
+    from config.catalogue import LIVE_MERCHANTS
+
+    merchant_meta = {}
+    for d in domains:
+        live = LIVE_MERCHANTS.get(d)
+        if live:
+            merchant_meta[d] = {
+                "display_name": live.get("display_name", d),
+                "logo_url": live.get("logo_url"),
+            }
     return _render(
         request,
         "home.html",
         {
             "products": featured,
             "merchants": domains,
+            "merchant_meta": merchant_meta,
             "mandate": mandate,
             "spent_today": str(spent_day),
         },

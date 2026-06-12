@@ -83,7 +83,7 @@
     </h1>
 
     {# Price #}
-    <p class="text-2xl font-semibold text-slate-900 mb-4">${{ product.price }}</p>
+    <p id="pdp-price" class="text-2xl font-semibold text-slate-900 mb-4">${{ product.price }}</p>
 
     {# Rating + stock status #}
     <div class="flex items-center gap-4 text-sm mb-5">
@@ -112,16 +112,35 @@
     <hr class="border-slate-200 mb-5">
 
     {# ── Variant selection ────────────────────────────────────────────
-       Reserved space for future color swatches and size selection.
-       When variants are added, insert color chips and a size dropdown
-       here — above the quantity + add-to-cart CTA — and add hidden
-       inputs (name="color", name="size") to the form below so they
-       are submitted with the cart add request.
-       See: ARCHITECTURE.md §Product Variants
+       Color chips / size, material, roast, capacity, etc. dropdowns,
+       rendered inline (no modal — this page already shows one product).
+       Selecting a full set of options updates the hidden
+       #pdp-variant-id input on the add-to-cart form below, the
+       displayed price (#pdp-price), and the submit button's
+       enabled/disabled + label state.
     #}
+    {% if product.variants %}
     <div id="product-variants" class="mb-5">
-      {# Placeholder — renders nothing until variants are implemented #}
+      {% include "_variant_picker_controls.html" %}
     </div>
+    {% endif %}
+
+    {# ── Buy on merchant (external) ─────────────────────────────── #}
+    {% if product.url and product.url.startswith('http') %}
+    <a href="{{ product.url }}" target="_blank" rel="noopener"
+       class="product-detail-buy-cta w-full py-3 mb-3 rounded-lg font-semibold
+              active:scale-[0.98] transition text-sm tracking-wide"
+       style="display:flex;align-items:center;justify-content:center;
+              gap:8px;white-space:nowrap;text-decoration:none;
+              background:#0f172a;color:#fff;
+              transition:background 0.15s">
+      Buy on {{ product.merchant }}
+      <svg style="width:16px;height:16px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+      </svg>
+    </a>
+    {% endif %}
 
     {# ── Add to cart ──────────────────────────────────────────────── #}
     {% if product.in_stock %}
@@ -134,6 +153,9 @@
             window.__bumpCart && window.__bumpCart();
           }"
           class="flex items-center gap-3 mb-4">
+      {% if product.variants %}
+      <input type="hidden" name="variant_id" id="pdp-variant-id" value="" />
+      {% endif %}
       {# Quantity stepper #}
       <div class="flex items-center border border-slate-300 rounded-lg overflow-hidden">
         <button type="button"
@@ -150,10 +172,12 @@
       </div>
       {# Add to cart CTA #}
       <button type="submit"
-              class="flex-1 py-3 bg-slate-900 text-white rounded-lg font-semibold
-                     hover:bg-slate-800 active:scale-[0.98] transition text-sm
-                     tracking-wide">
-        Add to cart
+              id="pdp-add-btn"
+              {% if product.variants %}disabled{% endif %}
+              class="flex-1 py-3 {{ 'bg-white text-slate-900 border border-slate-300 hover:bg-slate-50' if (product.url and product.url.startswith('http')) else 'bg-slate-900 text-white hover:bg-slate-800' }} rounded-lg font-semibold
+                     active:scale-[0.98] transition text-sm
+                     tracking-wide disabled:opacity-50 disabled:cursor-not-allowed">
+        {% if product.variants %}Select options{% else %}Add to cart{% endif %}
       </button>
     </form>
     {% else %}

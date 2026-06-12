@@ -20,18 +20,23 @@ right count at runtime.
 from __future__ import annotations
 
 # A real catalogue product so the /cart/add round-trip resolves to a true item.
-_ATH_RUNNING_SHOE = {
+# Must be a NO-VARIANT product (single SKU): the cart-toggle button does a
+# variantless POST to /cart/add, which a variant product (e.g. ath_001, which
+# now has Size variants) would reject with 400 "choose a size". ath_005
+# (Athletic Wireless Earbuds) is a genuine single-SKU product, so the toggle
+# add resolves directly and the badge updates — exactly the path under test.
+_ATH_EARBUDS = {
     "merchant_domain": "athletic-co.myshopify.com",
-    "product_id": "ath_001",
-    "name": "Demo Running Shoes",
-    "price": "129.99",
+    "product_id": "ath_005",
+    "name": "Athletic Wireless Earbuds",
+    "price": "79.00",
     "currency": "USD",
     "rating": 4.5,
     "review_count": 240,
-    "description": "Lightweight road running shoes. Cushioned midsole.",
+    "description": "True-wireless earbuds with active noise cancellation.",
     "in_stock": True,
     "images": [
-        "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80",
+        "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&q=80",
     ],
 }
 
@@ -46,7 +51,7 @@ def _open_chat_with_one_card(page, base_url: str, sse_emit) -> None:
     # Inject a `products` SSE burst onto THIS session's queue. The client
     # fetches /chat/products-fragment and renders the real card with its
     # wired-up cart-toggle button.
-    sse_emit(page, base_url, [{"type": "products", "data": {"products": [_ATH_RUNNING_SHOE]}}])
+    sse_emit(page, base_url, [{"type": "products", "data": {"products": [_ATH_EARBUDS]}}])
     page.wait_for_selector(".chat-product-card .cart-toggle-btn", timeout=8000)
 
 

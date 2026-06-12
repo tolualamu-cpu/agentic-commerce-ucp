@@ -104,26 +104,39 @@ def _in_cart(click_basket: dict, merchant_domain: str, product_id: str) -> bool:
 
 
 async def _enrich_products_with_images(ctx, products: list) -> list:
-    """Fill in missing images by fetching from in-memory merchant adapters.
+    """Backfill fields the discovery agent (Claude Haiku) drops when
+    serializing tool-result products to its own JSON output.
 
-    The discovery agent (Claude Haiku) does not reliably copy the images
-    array from tool results to its JSON output. This function supplements
-    any product dict that has an empty or missing images field by doing a
-    direct lookup against the stub adapter (no network call — in-memory).
-    Products that already have images are returned unchanged.
+    Haiku is unreliable about copying ALL fields from search_products
+    results — historically `images` would go missing, and we've also
+    observed `url` and `brand` being dropped (which kills the "Buy on
+    {merchant}" external link on cards). For each product dict, look up
+    the canonical record from the in-memory adapter and fill in any
+    missing fields (no network call — direct adapter call).
+
+    This is a DEFENSIVE safety net on top of the DISCOVERY prompt which
+    already lists `images`, `url`, and `brand` as required fields. Even
+    if a future prompt tweak loses one of those, the cards still render
+    correctly with the right links.
     """
     enriched = []
     for p in products:
         d = p if isinstance(p, dict) else p.model_dump(mode="json")
-        if not d.get("images"):
+        needs_lookup = not d.get("images") or not d.get("url") or not d.get("brand")
+        if needs_lookup:
             merchant = d.get("merchant_domain", "")
             pid = d.get("product_id", "")
             adapter = getattr(ctx.merchant_gateway, "direct_adapters", {}).get(merchant)
             if adapter and pid:
                 try:
                     full = await adapter.get_product(pid)
-                    if full and getattr(full, "images", None):
-                        d = {**d, "images": list(full.images)}
+                    if full:
+                        if not d.get("images") and getattr(full, "images", None):
+                            d = {**d, "images": list(full.images)}
+                        if not d.get("url") and getattr(full, "url", None):
+                            d = {**d, "url": full.url}
+                        if not d.get("brand") and getattr(full, "brand", None):
+                            d = {**d, "brand": full.brand}
                 except Exception:  # noqa: BLE001
                     pass
         enriched.append(d)
@@ -532,6 +545,12 @@ async def _run_orchestrator(sess: WebSession, text: str) -> None:
             emitted_products = False
             discovered = sess.ctx.session.last_discovered_products
             products_after = _product_id_set(discovered)
+            _dbg(
+                f"emit-decision: products_before={len(products_before)} "
+                f"products_after={len(products_after)} "
+                f"changed={products_after != products_before} "
+                f"discovered_count={len(discovered) if discovered else 0}"
+            )
             if discovered and products_after != products_before:
                 product_dicts = [
                     p if isinstance(p, dict) else p.model_dump(mode="json") for p in discovered
@@ -539,6 +558,7 @@ async def _run_orchestrator(sess: WebSession, text: str) -> None:
                 # Enrich any products missing images (discovery agent may have
                 # omitted the images field when serialising the tool result).
                 product_dicts = await _enrich_products_with_images(sess.ctx, product_dicts)
+                _dbg(f"emitting products event: {len(product_dicts)} cards")
                 await sess.sse_queue.put(
                     {
                         "type": "products",
@@ -566,11 +586,16 @@ async def _run_orchestrator(sess: WebSession, text: str) -> None:
             # when discovery did not already emit. Either way we clear the
             # staged list so it can never bleed into the next turn.
             to_show = sess.ctx.session.cards_to_show
+            _dbg(
+                f"show_product_cards drain: staged={len(to_show)} "
+                f"emitted_products_already={emitted_products}"
+            )
             if to_show and not emitted_products:
                 show_dicts = [
                     p if isinstance(p, dict) else p.model_dump(mode="json") for p in to_show
                 ]
                 show_dicts = await _enrich_products_with_images(sess.ctx, show_dicts)
+                _dbg(f"emitting products event (from cards_to_show): {len(show_dicts)} cards")
                 await sess.sse_queue.put(
                     {
                         "type": "products",
@@ -679,14 +704,20 @@ async def chat_stream(request: Request, sess: WebSession = Depends(get_or_create
         # live ``cart_update`` frame was missed earlier. Pairs with the
         # optimistic ``__bumpCart`` on the cards so the badge is both instant
         # and eventually-consistent. Best-effort: never block the stream.
+        _dbg(f"stream open gen={_my_gen}")
         resync = _cart_resync_event(sess)
         if resync is not None:
             yield f"data: {json.dumps(resync)}\n\n"
-        async for item in _session_sse_events(sess, superseded, request.is_disconnected):
-            if item is _KEEPALIVE:
-                # Heartbeat keeps proxies from closing the connection
-                yield ": keepalive\n\n"
-            else:
-                yield f"data: {json.dumps(item)}\n\n"
+        try:
+            async for item in _session_sse_events(sess, superseded, request.is_disconnected):
+                if item is _KEEPALIVE:
+                    # Heartbeat keeps proxies from closing the connection
+                    yield ": keepalive\n\n"
+                else:
+                    etype = item.get("type", "?") if isinstance(item, dict) else "raw"
+                    _dbg(f"stream gen={_my_gen} writing {etype}")
+                    yield f"data: {json.dumps(item)}\n\n"
+        finally:
+            _dbg(f"stream close gen={_my_gen}")
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

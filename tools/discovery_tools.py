@@ -71,3 +71,40 @@ async def get_product_details(
     if client is None:
         return None
     return await client.get_product(product_id)
+
+
+async def get_product_variants(
+    ctx: ToolContext,
+    *,
+    product_id: str,
+    merchant_domain: str,
+    mandate_id: str | None = None,
+    agent: str = "DiscoveryAgent",
+) -> dict:
+    """Return a product's real size/color/etc. options and SKUs.
+
+    Use this to check whether a product has variants before answering
+    questions like "what sizes does X come in", or to resolve a
+    user-named variant value (e.g. "the black one in size M") to its
+    real ``variant_id``. Never invent variant values.
+    """
+    product = await get_product_details(
+        ctx,
+        product_id=product_id,
+        merchant_domain=merchant_domain,
+        mandate_id=mandate_id,
+        agent=agent,
+    )
+    if product is None:
+        return {
+            "has_variants": False,
+            "option_names": [],
+            "variants": [],
+            "error": "product_not_found",
+        }
+
+    return {
+        "has_variants": bool(product.variants),
+        "option_names": product.option_names,
+        "variants": [v.model_dump(mode="json") for v in product.variants],
+    }

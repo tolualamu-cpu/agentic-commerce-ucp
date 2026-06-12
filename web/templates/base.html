@@ -51,9 +51,68 @@
       to   { opacity: 1; transform: translateY(0); }
     }
     /* Slow, gradual glide-in. ease-in-out ramps the opacity up gently from the
-       start (no front-loaded "pop"/flash) and settles softly at the end. */
-    .ac-bubble-in { animation: ac-bubble-in 850ms ease-in-out both; }
-    .ac-card-in   { animation: ac-card-in 1000ms ease-in-out both; }
+       start (no front-loaded "pop"/flash) and settles softly at the end.
+       fill-mode `forwards` (not `both`) means the FROM keyframe is NOT
+       applied before the animation runs — so if the animation never fires
+       (JS error, CSP block, edge-case race), the element stays at its
+       default opacity:1 instead of being stuck invisible at opacity:0.
+       This guards against the "cards never appear" class of regression that
+       happens when _attachCardHandlers throws AFTER innerHTML inject but
+       BEFORE the animation class is added. */
+    .ac-bubble-in { animation: ac-bubble-in 850ms ease-in-out forwards; }
+    .ac-card-in   { animation: ac-card-in 1000ms ease-in-out forwards; }
+    /* Belt-and-braces: chat product cards MUST be visible even if the
+       ac-card-in animation never fires. The animation overlays the slide
+       effect on top of this default-visible state. */
+    .chat-product-card { opacity: 1; }
+    /* ── Chat autoscroll safe-zone ─────────────────────────────────────
+       The chat input is `position: sticky; bottom: 0` so it overlays the
+       bottom ~80px of the viewport (chat-input-section in chat.html). When
+       the user submits, `window.scrollTo(scrollHeight)` or
+       `scrollIntoView({block:"end"})` puts the freshly-appended bubble at
+       viewport bottom — directly UNDER the sticky input, where it's
+       invisible. ``scroll-margin-bottom`` tells scrollIntoView to leave
+       this much space at the bottom of the viewport when aligning the
+       element, so the bubble lands ABOVE the input instead of behind it.
+       6.5rem ≈ the input's pt-3 + input height + pb-4 + a small visual
+       breathing margin. This is the real fix for the
+       "I have to scroll up to see my own message" bug. */
+    /* scrollIntoView reads scroll-margin-* on the TARGET element. The
+       append() helper returns the inner bubble (not its wrap), so we
+       apply to all descendants under #chat-log — scroll-margin only
+       affects scroll-snap/scrollIntoView and never layout.
+       - bottom: 6.5rem so scrollIntoView({block:"end"}) leaves room for
+         the sticky input that overlays the viewport bottom.
+       - top: 4.5rem so scrollIntoView({block:"start"}) leaves room for
+         the sticky header (logo/tabs row, ~64px) at viewport top. */
+    #chat-log,
+    #chat-log * {
+      scroll-margin-bottom: 6.5rem;
+      scroll-margin-top: 4.5rem;
+    }
+    /* ── External-merchant link badge (.ucp-buy-badge) ──────────────
+       Used in chat product cards, Explore cards, cart drawer items, and
+       product detail page. Defined here (not in app.css, which is the
+       prebuilt Tailwind artifact that gets regenerated on rebuild) so it
+       loads on every page before any fragment renders. Replaces inline
+       onmouseenter/onmouseleave JS which was fragile under innerHTML
+       injection. */
+    .ucp-buy-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; padding: 4px 8px; border-radius: 8px;
+      font-weight: 500; white-space: nowrap; text-decoration: none;
+      border: 1px solid #e2e8f0; color: #475569;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .ucp-buy-badge:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
+    /* Cart drawer line-item merchant link (text-only, small). Hover
+       darkens to slate-900 from the inline default. */
+    .cart-line-buy-link:hover { color: #0f172a; }
+    /* Cart drawer footer CTA per external-merchant grouping. Hover darkens
+       the slate-900 background to slate-800. */
+    .cart-merchant-cta:hover { background: #1e293b !important; }
+    /* Product detail page wide CTA. Same hover. */
+    .product-detail-buy-cta:hover { background: #1e293b !important; }
     /* Typing indicator (the agent "is composing a reply" cue). A soft three-dot
        wave shown ONLY while awaiting the agent's response (created on submit,
        removed the instant any real output lands). Intentionally slow — a 1.4s
@@ -166,6 +225,9 @@
 
   {# ── Picker overlay (search sub-flow, numeric resolver) ──────── #}
   {% include "_picker_overlay.html" %}
+
+  {# ── Variant picker modal (size/color/etc. before add-to-cart) ── #}
+  {% include "_variant_picker_modal.html" %}
 
   {# ── Toast notifications stack ───────────────────────────────── #}
   {% include "_toast.html" %}

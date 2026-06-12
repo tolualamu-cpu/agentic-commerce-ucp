@@ -179,7 +179,8 @@ class TestGetCartContentsTool:
         assert result["items"] == []
         assert result["item_count"] == 0
 
-    def test_returns_items_after_add(self, tool_ctx):
+    def test_returns_items_after_add(self, multi_merchant_ctx):
+        tool_ctx = multi_merchant_ctx
         orch = self._orch()
         asyncio.run(
             orch._add_to_cart(
@@ -187,8 +188,6 @@ class TestGetCartContentsTool:
                 product_id="cof_001",
                 merchant_domain="coffee-bar.myshopify.com",
                 quantity=2,
-                name="Mug",
-                price="12.00",
             )
         )
         asyncio.run(
@@ -197,16 +196,24 @@ class TestGetCartContentsTool:
                 product_id="ath_007",
                 merchant_domain="athletic-co.myshopify.com",
                 quantity=1,
-                name="Shoes",
-                price="159.00",
+                variant_id="ath_007-8-Standard",
             )
         )
 
         result = asyncio.run(orch._get_cart_contents(tool_ctx))
         assert result["is_empty"] is False
         assert result["item_count"] == 3
-        # Decimal: 2 * 12 + 1 * 159 = 183.00
-        assert result["subtotal"] == "183.00"
+        # Decimal: 2 * cof_001 price + 1 * ath_007 price
+        from config.catalogue import MERCHANTS
+
+        cof_price = next(
+            p["price"] for p in MERCHANTS["coffee-bar.myshopify.com"] if p["id"] == "cof_001"
+        )
+        ath_price = next(
+            p["price"] for p in MERCHANTS["athletic-co.myshopify.com"] if p["id"] == "ath_007"
+        )
+        expected_subtotal = Decimal(str(cof_price)) * 2 + Decimal(str(ath_price))
+        assert Decimal(result["subtotal"]) == expected_subtotal
         # Items tagged with merchant_domain
         merchants = {it["merchant_domain"] for it in result["items"]}
         assert merchants == {"coffee-bar.myshopify.com", "athletic-co.myshopify.com"}
@@ -222,9 +229,10 @@ class TestGetCartContentsTool:
         names = {spec.name for spec in orch.tool_specs}
         assert "get_cart_contents" in names
 
-    def test_does_not_mutate_cart(self, tool_ctx):
+    def test_does_not_mutate_cart(self, multi_merchant_ctx):
         # Read-only invariant: calling get_cart_contents N times must
         # leave click_basket exactly as it was.
+        tool_ctx = multi_merchant_ctx
         orch = self._orch()
         asyncio.run(
             orch._add_to_cart(
@@ -232,8 +240,6 @@ class TestGetCartContentsTool:
                 product_id="cof_001",
                 merchant_domain="coffee-bar.myshopify.com",
                 quantity=1,
-                name="Mug",
-                price="12.00",
             )
         )
         before = dict(tool_ctx.session.click_basket)

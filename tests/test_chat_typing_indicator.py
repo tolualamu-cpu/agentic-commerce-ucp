@@ -97,9 +97,12 @@ class TestTypingHelpers:
 class TestTypingShownOnlyWhenLoading:
     def test_shown_on_submit(self):
         # The beforeRequest (submit) handler kicks off the wave.
+        # Window expanded multiple times as the handler grew with autoscroll
+        # safety code (scrollIntoView, requestAnimationFrame wrapper, sticky-
+        # input scroll-margin handling, etc.). Currently ~3500 chars.
         idx = _CHAT_SSE_SRC.find('addEventListener("htmx:beforeRequest"')
         assert idx != -1
-        handler = _CHAT_SSE_SRC[idx : idx + 1300]
+        handler = _CHAT_SSE_SRC[idx : idx + 3500]
         assert "showTyping();" in handler
 
     def test_shown_on_partial_midrun_load(self):
@@ -130,7 +133,12 @@ class TestTypingShownOnlyWhenLoading:
 
 class TestTypingHiddenWhenResponseArrives:
     def _branch(self, marker: str) -> str:
-        idx = _CHAT_SSE_SRC.find(marker)
+        # Use rfind so we pick the MAIN dispatcher branch (the last
+        # occurrence) — earlier matches with the same marker may exist
+        # inside the _skipUntilDone self-heal block which falls THROUGH
+        # to the main handler below it. The main handler is what owns
+        # the hideTyping() call.
+        idx = _CHAT_SSE_SRC.rfind(marker)
         assert idx != -1, f"branch not found: {marker}"
         end = _CHAT_SSE_SRC.find("} else if", idx + len(marker))
         # Last branch (no trailing else-if): fall back to end of dispatcher.

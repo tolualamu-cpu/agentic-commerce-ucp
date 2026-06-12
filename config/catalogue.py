@@ -34,6 +34,19 @@ ATHLETIC_CO = [
             "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80",
             "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=800&q=80",
         ],
+        "options": ["Size"],
+        "variants": [
+            {
+                "id": f"ath_001-{size}",
+                "title": str(size),
+                "price": "129.99",
+                "available": True,
+                "sku": f"ATH-001-{size}",
+                "option1": str(size),
+                "option2": None,
+            }
+            for size in (8, 9, 10, 11, 12)
+        ],
     },
     {
         "id": "ath_002",
@@ -49,6 +62,19 @@ ATHLETIC_CO = [
         "images": [
             "https://images.unsplash.com/photo-1582898967731-b5834427fd66?w=800&q=80",
             "https://images.unsplash.com/photo-1460353581641-37baddab0fa2?w=800&q=80",
+        ],
+        "options": ["Size"],
+        "variants": [
+            {
+                "id": f"ath_002-{size}",
+                "title": str(size),
+                "price": "189.00",
+                "available": False,
+                "sku": f"ATH-002-{size}",
+                "option1": str(size),
+                "option2": None,
+            }
+            for size in (8, 9, 10, 11, 12)
         ],
     },
     {
@@ -66,6 +92,20 @@ ATHLETIC_CO = [
             "https://images.unsplash.com/photo-1602190420103-683df5093e86?w=800&q=80",
             "https://images.unsplash.com/photo-1539794830467-1f1755804d13?w=800&q=80",
         ],
+        "options": ["Size", "Color"],
+        "variants": [
+            {
+                "id": f"ath_003-{size}-{color}",
+                "title": f"{size} / {color}",
+                "price": "39.00",
+                "available": True,
+                "sku": f"PRS-{size}-{color[:3].upper()}",
+                "option1": size,
+                "option2": color,
+            }
+            for size in ("S", "M", "L", "XL")
+            for color in ("Black", "Navy")
+        ],
     },
     {
         "id": "ath_004",
@@ -81,6 +121,20 @@ ATHLETIC_CO = [
         "images": [
             "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&q=80",
             "https://images.unsplash.com/photo-1583744946564-b52ac1c389c8?w=800&q=80",
+        ],
+        "options": ["Size", "Color"],
+        "variants": [
+            {
+                "id": f"ath_004-{size}-{color}",
+                "title": f"{size} / {color}",
+                "price": "24.99",
+                "available": True,
+                "sku": f"LTT-{size}-{color[:3].upper()}",
+                "option1": size,
+                "option2": color,
+            }
+            for size in ("S", "M", "L", "XL", "XXL")
+            for color in ("Black", "White", "Navy")
         ],
     },
     {
@@ -114,6 +168,19 @@ ATHLETIC_CO = [
             "https://images.unsplash.com/photo-1562183241-b937e95585b6?w=800&q=80",
             "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=800&q=80",
         ],
+        "options": ["Size"],
+        "variants": [
+            {
+                "id": f"ath_006-{size}",
+                "title": str(size),
+                "price": "179.00",
+                "available": True,
+                "sku": f"ATH-006-{size}",
+                "option1": str(size),
+                "option2": None,
+            }
+            for size in (8, 9, 10, 11, 12, 13)
+        ],
     },
     {
         "id": "ath_007",
@@ -129,6 +196,20 @@ ATHLETIC_CO = [
         "images": [
             "https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?w=800&q=80",
             "https://images.unsplash.com/photo-1491553895911-0055eca6402d?w=800&q=80",
+        ],
+        "options": ["Size", "Width"],
+        "variants": [
+            {
+                "id": f"ath_007-{size}-{width}",
+                "title": f"{size} / {width}",
+                "price": "159.00",
+                "available": True,
+                "sku": f"ATH-007-{size}-{width[:1]}",
+                "option1": str(size),
+                "option2": width,
+            }
+            for size in (8, 9, 10, 11, 12)
+            for width in ("Standard", "Wide")
         ],
     },
 ]
@@ -150,6 +231,19 @@ AUDIO_HUB = [
             "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80",
             "https://images.unsplash.com/photo-1524678606370-a47ad25cb82a?w=800&q=80",
         ],
+        "options": ["Color"],
+        "variants": [
+            {
+                "id": f"aud_001-{color}",
+                "title": color,
+                "price": "89.00",
+                "available": True,
+                "sku": f"AUD-001-{color[:3].upper()}",
+                "option1": color,
+                "option2": None,
+            }
+            for color in ("Black", "White", "Blue")
+        ],
     },
     {
         "id": "aud_002",
@@ -165,6 +259,19 @@ AUDIO_HUB = [
         "images": [
             "https://images.unsplash.com/photo-1576082712237-eb1335ce23a3?w=800&q=80",
             "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=800&q=80",
+        ],
+        "options": ["Color"],
+        "variants": [
+            {
+                "id": f"aud_002-{color}",
+                "title": color,
+                "price": "249.00",
+                "available": True,
+                "sku": f"AUD-002-{color[:3].upper()}",
+                "option1": color,
+                "option2": None,
+            }
+            for color in ("Black", "Silver")
         ],
     },
     {
@@ -198,6 +305,19 @@ AUDIO_HUB = [
             "https://images.unsplash.com/photo-1756902368926-eb9e5e9d2a69?w=800&q=80",
             "https://images.unsplash.com/photo-1606220945770-b5b6c2c55bf1?w=800&q=80",
         ],
+        "options": ["Color"],
+        "variants": [
+            {
+                "id": f"aud_004-{color}",
+                "title": color,
+                "price": "129.00",
+                "available": True,
+                "sku": f"AUD-004-{color[:3].upper()}",
+                "option1": color,
+                "option2": None,
+            }
+            for color in ("Black", "White")
+        ],
     },
     {
         "id": "aud_005",
@@ -213,6 +333,19 @@ AUDIO_HUB = [
         "images": [
             "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=800&q=80",
             "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=800&q=80",
+        ],
+        "options": ["Color"],
+        "variants": [
+            {
+                "id": f"aud_005-{color}",
+                "title": color,
+                "price": "59.00",
+                "available": True,
+                "sku": f"AUD-005-{color[:3].upper()}",
+                "option1": color,
+                "option2": None,
+            }
+            for color in ("Black", "Red", "Teal")
         ],
     },
     {
@@ -245,6 +378,19 @@ AUDIO_HUB = [
         "images": [
             "https://images.unsplash.com/photo-1758521960921-7d5eab7cf50a?w=800&q=80",
             "https://images.unsplash.com/photo-1525825691042-e14d9042fc70?w=800&q=80",
+        ],
+        "options": ["Color"],
+        "variants": [
+            {
+                "id": f"aud_007-{color}",
+                "title": color,
+                "price": "99.00",
+                "available": True,
+                "sku": f"AUD-007-{color[:3].upper()}",
+                "option1": color,
+                "option2": None,
+            }
+            for color in ("Black", "Orange")
         ],
     },
 ]
@@ -282,6 +428,27 @@ COFFEE_BAR = [
             "https://images.unsplash.com/photo-1530138295342-c7c921529ee9?w=800&q=80",
             "https://images.unsplash.com/photo-1588793076577-4c2b666452d3?w=800&q=80",
         ],
+        "options": ["Size"],
+        "variants": [
+            {
+                "id": "cof_002-16oz",
+                "title": "16oz",
+                "price": "28.00",
+                "available": True,
+                "sku": "COF-002-16",
+                "option1": "16oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_002-20oz",
+                "title": "20oz",
+                "price": "32.00",
+                "available": True,
+                "sku": "COF-002-20",
+                "option1": "20oz",
+                "option2": None,
+            },
+        ],
     },
     {
         "id": "cof_003",
@@ -297,6 +464,36 @@ COFFEE_BAR = [
         "images": [
             "https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=800&q=80",
             "https://images.unsplash.com/photo-1511537190424-bbbab87ac5eb?w=800&q=80",
+        ],
+        "options": ["Size"],
+        "variants": [
+            {
+                "id": "cof_003-12oz",
+                "title": "12oz",
+                "price": "18.00",
+                "available": True,
+                "sku": "COF-003-12",
+                "option1": "12oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_003-16oz",
+                "title": "16oz",
+                "price": "22.00",
+                "available": True,
+                "sku": "COF-003-16",
+                "option1": "16oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_003-2lb",
+                "title": "2lb",
+                "price": "28.00",
+                "available": True,
+                "sku": "COF-003-2LB",
+                "option1": "2lb",
+                "option2": None,
+            },
         ],
     },
     {
@@ -329,6 +526,36 @@ COFFEE_BAR = [
         "images": [
             "https://images.unsplash.com/photo-1611854779393-1b2da9d400fe?w=800&q=80",
             "https://images.unsplash.com/photo-1753837787691-84a06d715d24?w=800&q=80",
+        ],
+        "options": ["Size"],
+        "variants": [
+            {
+                "id": "cof_005-12oz",
+                "title": "12oz",
+                "price": "16.00",
+                "available": True,
+                "sku": "COF-005-12",
+                "option1": "12oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_005-16oz",
+                "title": "16oz",
+                "price": "20.00",
+                "available": True,
+                "sku": "COF-005-16",
+                "option1": "16oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_005-2lb",
+                "title": "2lb",
+                "price": "26.00",
+                "available": True,
+                "sku": "COF-005-2LB",
+                "option1": "2lb",
+                "option2": None,
+            },
         ],
     },
     {
@@ -394,6 +621,36 @@ COFFEE_BAR = [
             "https://images.unsplash.com/photo-1525088553748-01d6e210e00b?w=800&q=80",
             "https://images.unsplash.com/photo-1497515114629-f71d768fd07c?w=800&q=80",
         ],
+        "options": ["Size"],
+        "variants": [
+            {
+                "id": "cof_009-12oz",
+                "title": "12oz",
+                "price": "17.00",
+                "available": True,
+                "sku": "COF-009-12",
+                "option1": "12oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_009-16oz",
+                "title": "16oz",
+                "price": "21.00",
+                "available": True,
+                "sku": "COF-009-16",
+                "option1": "16oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_009-2lb",
+                "title": "2lb",
+                "price": "27.00",
+                "available": True,
+                "sku": "COF-009-2LB",
+                "option1": "2lb",
+                "option2": None,
+            },
+        ],
     },
     {
         "id": "cof_010",
@@ -410,6 +667,36 @@ COFFEE_BAR = [
             "https://images.unsplash.com/photo-1422207109431-97544339f995?w=800&q=80",
             "https://images.unsplash.com/photo-1459755486867-b55449bb39ff?w=800&q=80",
         ],
+        "options": ["Size"],
+        "variants": [
+            {
+                "id": "cof_010-12oz",
+                "title": "12oz",
+                "price": "19.00",
+                "available": True,
+                "sku": "COF-010-12",
+                "option1": "12oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_010-16oz",
+                "title": "16oz",
+                "price": "23.00",
+                "available": True,
+                "sku": "COF-010-16",
+                "option1": "16oz",
+                "option2": None,
+            },
+            {
+                "id": "cof_010-2lb",
+                "title": "2lb",
+                "price": "29.00",
+                "available": True,
+                "sku": "COF-010-2LB",
+                "option1": "2lb",
+                "option2": None,
+            },
+        ],
     },
 ]
 
@@ -418,4 +705,33 @@ MERCHANTS: dict[str, list[dict]] = {
     "athletic-co.myshopify.com": ATHLETIC_CO,
     "audio-hub.myshopify.com": AUDIO_HUB,
     "coffee-bar.myshopify.com": COFFEE_BAR,
+}
+
+# Storefront display names for the demo merchants. Keyed by merchant_domain.
+# Used by the adapter to set ``ProductResult.merchant`` to the STOREFRONT name
+# (never the brand/vendor). The "Buy on {{ merchant }}" badge across the UI
+# reads this — for demo products the vendor field on each seed dict happens
+# to equal the storefront name, but we never rely on that coincidence for
+# real merchants like Kith where brand != storefront.
+DEMO_MERCHANT_DISPLAY_NAMES: dict[str, str] = {
+    "athletic-co.myshopify.com": "Athletic Co",
+    "audio-hub.myshopify.com": "Audio Hub",
+    "coffee-bar.myshopify.com": "Coffee Bar",
+}
+
+
+# ── Live merchants (real Shopify stores fetched at runtime) ──────────────
+# Each entry maps a domain to its Shopify storefront URL. Products are
+# fetched from {store_url}/products.json and cached in LiveShopifyTransport.
+# These merchants coexist with the demo stubs above.
+
+LIVE_MERCHANTS: dict[str, dict] = {
+    "kith.com": {
+        "store_url": "https://kith.com",
+        "display_name": "Kith",
+        "logo_url": "https://kith.com/cdn/shop/files/favicon3_32x32.png?v=1613503289",
+        # Kith has 1000+ products across 20+ pages (50/page). Fetch 20 pages
+        # so the agent sees the full catalog; cache_ttl keeps re-fetches rare.
+        "max_pages": 20,
+    },
 }

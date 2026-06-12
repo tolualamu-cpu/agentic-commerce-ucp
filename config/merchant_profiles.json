@@ -55,6 +55,29 @@
       ],
       "signing_keys": [],
       "_note": "Demo merchant — no UCP support yet; gateway uses ShopifyMCPAdapter. Stub present so discovery skips the live /.well-known/ucp fetch."
+    },
+    "kith.com": {
+      "_note": "Live merchant. Real UCP 2026-04-08 profile at https://kith.com/.well-known/ucp (hosted at kithnyc.myshopify.com). This stub is the normalised form so startup avoids a live fetch; UCPProfileDiscovery re-fetches and caches the real profile after TTL expiry.",
+      "merchant_domain": "kith.com",
+      "capabilities": [
+        {"namespace": "dev.ucp.shopping.checkout",       "version": "2026-04-08", "spec_url": "https://ucp.dev/2026-04-08/specification/checkout",     "schema_url": "https://ucp.dev/2026-04-08/schemas/shopping/checkout.json"},
+        {"namespace": "dev.ucp.shopping.cart",           "version": "2026-04-08", "spec_url": "https://ucp.dev/2026-04-08/specification/cart",          "schema_url": "https://ucp.dev/2026-04-08/schemas/shopping/cart.json"},
+        {"namespace": "dev.ucp.shopping.order",          "version": "2026-04-08", "spec_url": "https://ucp.dev/2026-04-08/specs/shopping/order",        "schema_url": "https://ucp.dev/2026-04-08/schemas/shopping/order.json"},
+        {"namespace": "dev.ucp.shopping.fulfillment",    "version": "2026-04-08", "spec_url": "https://ucp.dev/2026-04-08/specification/fulfillment",   "schema_url": "https://ucp.dev/2026-04-08/schemas/shopping/fulfillment.json"},
+        {"namespace": "dev.ucp.shopping.discount",       "version": "2026-04-08", "spec_url": "https://ucp.dev/2026-04-08/specification/discount",      "schema_url": "https://ucp.dev/2026-04-08/schemas/shopping/discount.json"},
+        {"namespace": "dev.ucp.shopping.catalog.search", "version": "2026-04-08", "spec_url": "https://ucp.dev/2026-04-08/specification/catalog",       "schema_url": "https://ucp.dev/2026-04-08/schemas/shopping/catalog_search.json"},
+        {"namespace": "dev.ucp.shopping.catalog.lookup", "version": "2026-04-08", "spec_url": "https://ucp.dev/2026-04-08/specification/catalog",       "schema_url": "https://ucp.dev/2026-04-08/schemas/shopping/catalog_lookup.json"},
+        {"namespace": "dev.shopify.catalog",             "version": "2026-04-08", "spec_url": "https://shopify.dev/docs/agents/catalog/storefront-catalog", "schema_url": "https://shopify.dev/ucp/schemas/2026-04-08/shopify_catalog.json"}
+      ],
+      "services": [
+        {"type": "mcp", "spec_url": "https://ucp.dev/2026-04-08/specification/overview/", "base_url": "https://kithnyc.myshopify.com/api/ucp/mcp"}
+      ],
+      "payment_handlers": [
+        {"id": "gpay",         "name": "com.google.pay",       "spec_url": "https://pay.google.com/gp/p/ucp/2026-01-11/"},
+        {"id": "shopify.card", "name": "dev.shopify.card",     "spec_url": "https://ucp.dev/specification/payment-handler-guide"},
+        {"id": "shop_pay",     "name": "dev.shopify.shop_pay", "spec_url": "https://shopify.dev/ucp/shop-pay-handler/2026-04-08/spec.md"}
+      ],
+      "signing_keys": []
     }
   }
 }

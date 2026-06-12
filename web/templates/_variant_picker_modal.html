@@ -1,0 +1,235 @@
+{# Variant picker modal — opened by a plain client-side button click (no
+   agent/SSE involvement) when a product card's "Add to cart" button is for
+   a product with size/color/material/roast/etc. variants.
+
+   Usage: a trigger element carries
+     data-product='{"product_id":..., "merchant_domain":..., "name":...,
+                     "price":..., "image":..., "option_names":[...],
+                     "variants":[{"variant_id":..., "sku":..., "options":{...},
+                                   "price":..., "in_stock":..., "image":...}, ...]}'
+   and `onclick="window.__openVariantPicker(this)"`.
+
+   Submits via fetch POST to /cart/add/{merchant}/{product_id} with
+   variant_id — mirrors the cart-toggle fetch pattern in _chat_sse.html.
+#}
+<div id="variant-picker-overlay"
+     class="fixed inset-0 z-40 hidden bg-slate-900/60 backdrop-blur-sm
+            flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+    <header class="mb-4 flex items-start justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <div id="vp-image" class="w-14 h-14 rounded-lg bg-slate-100 flex-shrink-0
+                    bg-cover bg-center"></div>
+        <div class="min-w-0">
+          <h2 id="vp-name" class="text-sm font-semibold text-slate-900 line-clamp-2"></h2>
+          <p id="vp-price" class="text-sm text-slate-500 mt-0.5"></p>
+        </div>
+      </div>
+      <button id="vp-close"
+              type="button"
+              class="text-xs text-slate-500 hover:underline flex-shrink-0">Cancel</button>
+    </header>
+
+    <div id="vp-options" class="space-y-4 mb-5"></div>
+
+    <p id="vp-status" class="text-xs text-red-600 mb-2 hidden"></p>
+
+    <button id="vp-add"
+            type="button"
+            disabled
+            class="w-full px-3 py-2.5 bg-slate-900 text-white rounded-lg
+                   hover:bg-slate-800 text-sm font-medium transition
+                   active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+      Choose options
+    </button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const overlay   = document.getElementById("variant-picker-overlay");
+  const optionsEl = document.getElementById("vp-options");
+  const nameEl    = document.getElementById("vp-name");
+  const priceEl   = document.getElementById("vp-price");
+  const imageEl   = document.getElementById("vp-image");
+  const statusEl  = document.getElementById("vp-status");
+  const addBtn    = document.getElementById("vp-add");
+  const closeBtn  = document.getElementById("vp-close");
+  if (!overlay) return;
+
+  let current = null;       // the data-product payload for the open product
+  let selections = {};      // {dimensionName: value}
+
+  function close() {
+    overlay.classList.add("hidden");
+    current = null;
+    selections = {};
+  }
+  closeBtn.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[c]);
+  }
+
+  // Distinct values for `dimension`, in first-seen order across variants.
+  function valuesFor(dimension) {
+    const seen = [];
+    (current.variants || []).forEach((v) => {
+      const val = (v.options || {})[dimension];
+      if (val != null && seen.indexOf(val) === -1) seen.push(val);
+    });
+    return seen;
+  }
+
+  function findMatch() {
+    const names = current.option_names || [];
+    if (names.some((n) => !selections[n])) return null;
+    return (current.variants || []).find((v) => {
+      return names.every((n) => (v.options || {})[n] === selections[n]);
+    }) || null;
+  }
+
+  function render() {
+    optionsEl.innerHTML = "";
+    (current.option_names || []).forEach((dimension) => {
+      const wrap = document.createElement("div");
+      const label = document.createElement("p");
+      label.className = "text-xs font-medium text-slate-700 mb-1.5";
+      label.textContent = dimension;
+      wrap.appendChild(label);
+
+      const values = valuesFor(dimension);
+
+      if (dimension.toLowerCase() === "color") {
+        const row = document.createElement("div");
+        row.className = "flex flex-wrap gap-2";
+        values.forEach((val) => {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.textContent = val;
+          chip.dataset.dimension = dimension;
+          chip.dataset.value = val;
+          chip.className = "px-3 py-1.5 rounded-full text-xs font-medium border transition " +
+            (selections[dimension] === val
+              ? "bg-slate-900 text-white border-slate-900"
+              : "bg-white text-slate-700 border-slate-300 hover:border-slate-500");
+          chip.addEventListener("click", () => {
+            selections[dimension] = val;
+            render();
+          });
+          row.appendChild(chip);
+        });
+        wrap.appendChild(row);
+      } else {
+        const select = document.createElement("select");
+        select.className = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm";
+        select.dataset.dimension = dimension;
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Select " + dimension;
+        select.appendChild(placeholder);
+        values.forEach((val) => {
+          const opt = document.createElement("option");
+          opt.value = val;
+          opt.textContent = val;
+          if (selections[dimension] === val) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.addEventListener("change", () => {
+          if (select.value) selections[dimension] = select.value;
+          else delete selections[dimension];
+          render();
+        });
+        wrap.appendChild(select);
+      }
+
+      optionsEl.appendChild(wrap);
+    });
+
+    const match = findMatch();
+    statusEl.classList.add("hidden");
+    if (!match) {
+      addBtn.disabled = true;
+      addBtn.textContent = "Choose options";
+    } else if (match.in_stock === false) {
+      addBtn.disabled = true;
+      addBtn.textContent = "Out of stock";
+      statusEl.textContent = "That combination is currently out of stock.";
+      statusEl.classList.remove("hidden");
+    } else {
+      addBtn.disabled = false;
+      addBtn.textContent = "Add to cart";
+    }
+  }
+
+  addBtn.addEventListener("click", () => {
+    const match = findMatch();
+    if (!match || addBtn.disabled || !current) return;
+    addBtn.disabled = true;
+    const prevText = addBtn.textContent;
+    addBtn.textContent = "Adding…";
+
+    const url = "/cart/add/" + current.merchant_domain + "/" + current.product_id;
+    const body = new URLSearchParams({ variant_id: match.variant_id });
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data) => {
+        if (typeof window.__toast === "function") {
+          window.__toast("Added: " + (current.name || ""), "info");
+        }
+        if (typeof data.item_count === "number" && typeof window.__setCartBadge === "function") {
+          window.__setCartBadge(data.item_count);
+        } else if (typeof window.__bumpCart === "function") {
+          window.__bumpCart();
+        }
+        close();
+      })
+      .catch(() => {
+        addBtn.disabled = false;
+        addBtn.textContent = prevText;
+        statusEl.textContent = "Couldn't add that to your cart. Please try again.";
+        statusEl.classList.remove("hidden");
+      });
+  });
+
+  window.__openVariantPicker = function (triggerEl) {
+    let data;
+    try {
+      data = JSON.parse(triggerEl.dataset.product || "{}");
+    } catch {
+      return;
+    }
+    current = data;
+    selections = {};
+
+    nameEl.textContent = data.name || "";
+    priceEl.textContent = data.price ? ("$" + data.price) : "";
+    if (data.image) {
+      imageEl.style.backgroundImage = "url('" + data.image + "')";
+    } else {
+      imageEl.style.backgroundImage = "";
+    }
+
+    // Pre-select dimensions that have only one possible value.
+    (data.option_names || []).forEach((dimension) => {
+      const values = valuesFor(dimension);
+      if (values.length === 1) selections[dimension] = values[0];
+    });
+
+    render();
+    overlay.classList.remove("hidden");
+  };
+})();
+</script>
