@@ -348,7 +348,12 @@ class BaseAgent:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
-        # Try fenced code block
+        # Try fenced code block.
+        # NOTE: ``chunk.lstrip("json")`` strips the CHARACTERS j/s/o/n from
+        # the left, not the literal word "json" — happens to work because
+        # ```json fences start with j-s-o-n followed by a newline. The
+        # safer ``chunk.removeprefix("json")`` is Python 3.9+; this code
+        # also runs on 3.9 so it's fine, but we keep the historical form.
         if "```" in text:
             fence = text.split("```")
             for chunk in fence[1::2]:
@@ -357,8 +362,151 @@ class BaseAgent:
                     return json.loads(cleaned)
                 except json.JSONDecodeError:
                     continue
-        # Last resort: surface the raw text
+        # Last resort: try to recover a partial JSON object/array. The
+        # discovery agent can hit max_tokens mid-string and produce
+        # truncated JSON like:
+        #   ```json
+        #   {"products": [{"id":"a","name":"x"}, {"id":"b","name":"x...
+        # Previously this fell through to {"parse_error": "non_json"} and
+        # the orchestrator silently dropped ALL discovered products — so
+        # no products SSE event ever fired and no cards appeared in the
+        # chat UI even though the model successfully found products.
+        # Recovery: find the LAST complete object/array close and truncate.
+        partial = _recover_partial_json(text)
+        if partial is not None:
+            return partial
+        # Truly unparseable — surface the raw text for debug logs.
         return {"parse_error": "non_json", "raw": text}
+
+
+def _recover_partial_json(text: str) -> dict | None:
+    """Salvage a partial JSON object from text that was truncated mid-response.
+
+    Real-world failure: the discovery agent emits a large JSON object with a
+    ``products`` array. If the response hits max_tokens mid-string the final
+    JSON is invalid, but the COMPLETED items in the array are still readable.
+    Without this helper, the orchestrator drops EVERYTHING discovered — so the
+    user sees the agent describe products in prose but no cards render.
+
+    Strategy:
+      1. Find the FIRST `{` to start the JSON object.
+      2. Walk forward tracking bracket depth, ignoring brackets inside string
+         literals (respect escape sequences).
+      3. Whenever depth returns to 0 inside the top-level object's value, that
+         is a candidate complete-array boundary — track each.
+      4. If the whole object never closes, synthesise a close by truncating to
+         the last complete item in the products array (find last balanced `}`
+         inside the products array, add ``]}`` to close).
+      5. Return the parsed result, or None if recovery isn't possible.
+
+    Handles both raw JSON and markdown-fenced JSON (strips the fences first).
+    """
+    if not text:
+        return None
+    # Strip leading markdown fence if present so we look at raw JSON.
+    candidate = text
+    if "```" in candidate:
+        # Take the FIRST fenced block — that's the one the model meant.
+        parts = candidate.split("```")
+        if len(parts) >= 2:
+            chunk = parts[1].lstrip("json").strip()
+            # If the fence never closed (truncation), the chunk is the
+            # rest of the text. Use it.
+            candidate = chunk
+    # Find the start of the object.
+    start = candidate.find("{")
+    if start < 0:
+        return None
+    # Walk the string, tracking depth and array boundaries inside a
+    # ``products`` (or ``ranked``, etc.) array.
+    depth = 0
+    in_str = False
+    escape = False
+    last_complete_array_item_end: int | None = None
+    products_array_start: int | None = None
+    products_depth: int | None = None
+    i = start
+    while i < len(candidate):
+        ch = candidate[i]
+        if escape:
+            escape = False
+            i += 1
+            continue
+        if ch == "\\" and in_str:
+            escape = True
+            i += 1
+            continue
+        if ch == '"':
+            in_str = not in_str
+            i += 1
+            continue
+        if in_str:
+            i += 1
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            # If we just closed an element object directly INSIDE the
+            # salvaged array (i.e. the array item itself), mark the boundary.
+            # Items live one level deeper than the array. The array sits at
+            # depth ``products_depth`` (counted as the depth BEFORE entering
+            # the `[`), so each item sits at depth ``products_depth + 1``
+            # while open and returns to ``products_depth + 1`` when closed.
+            if (
+                products_array_start is not None
+                and products_depth is not None
+                and depth == products_depth + 1
+            ):
+                last_complete_array_item_end = i
+        elif ch == "[":
+            # Detect the salvageable array opening: look backward for a
+            # known key (products/ranked/items). If found, snapshot the
+            # current depth so item-close detection above knows the level.
+            preceding = candidate[max(0, i - 60) : i].rstrip()
+            if preceding.endswith(":"):
+                if (
+                    '"products"' in preceding[-20:]
+                    or '"ranked"' in preceding[-20:]
+                    or '"items"' in preceding[-20:]
+                ):
+                    products_array_start = i
+                    products_depth = depth  # depth BEFORE entering the `[`
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        i += 1
+    # Case A: top-level object fully closed but original parse failed for some
+    # other reason — just try once more on the strict slice.
+    if depth == 0:
+        try:
+            return json.loads(candidate[start:i])
+        except json.JSONDecodeError:
+            pass
+    # Case B: truncated. If we tracked the products array and saw at least one
+    # complete item, splice ``]}`` after the last complete item to close.
+    if (
+        products_array_start is not None
+        and last_complete_array_item_end is not None
+        and last_complete_array_item_end > products_array_start
+    ):
+        # Slice from object start up to and including the last complete array
+        # item, then close the array and the outer object.
+        salvaged = candidate[start : last_complete_array_item_end + 1] + "]}"
+        try:
+            return json.loads(salvaged)
+        except json.JSONDecodeError:
+            return None
+    # Case C: an empty products array opened but no items completed — emit
+    # an empty list so the caller knows the agent ran but produced nothing.
+    if products_array_start is not None and last_complete_array_item_end is None:
+        # Determine which key the array belongs to so we return the right shape.
+        preceding = candidate[max(0, products_array_start - 60) : products_array_start]
+        for key in ("products", "ranked", "items"):
+            if f'"{key}"' in preceding:
+                return {key: [], "parse_recovered": "empty_array_after_truncation"}
+        return None
+    return None
 
 
 def _is_tool_error(result: Any) -> bool:

@@ -158,7 +158,10 @@ class TestDiscoverySseProductsEvent:
 class TestCartInteractionsFromChatCards:
     def test_add_to_cart_increments_basket(self, client):
         client.get("/")
-        r = client.post("/cart/add/athletic-co.myshopify.com/ath_001")
+        r = client.post(
+            "/cart/add/athletic-co.myshopify.com/ath_001",
+            data={"variant_id": "ath_001-8"},
+        )
         # Any successful response (200 or redirect) is OK
         assert r.status_code in (200, 302, 303)
         sess = _sess(client)
@@ -170,8 +173,14 @@ class TestCartInteractionsFromChatCards:
 
     def test_remove_from_cart_decrements_basket(self, client):
         client.get("/")
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
-        r = client.post("/cart/remove/athletic-co.myshopify.com/ath_001")
+        client.post(
+            "/cart/add/athletic-co.myshopify.com/ath_001",
+            data={"variant_id": "ath_001-8"},
+        )
+        r = client.post(
+            "/cart/remove/athletic-co.myshopify.com/ath_001",
+            data={"variant_id": "ath_001-8"},
+        )
         assert r.status_code in (200, 302, 303)
         sess = _sess(client)
         basket = sess.ctx.session.click_basket
@@ -182,8 +191,14 @@ class TestCartInteractionsFromChatCards:
 
     def test_second_add_increments_quantity(self, client):
         client.get("/")
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
+        client.post(
+            "/cart/add/athletic-co.myshopify.com/ath_001",
+            data={"variant_id": "ath_001-8"},
+        )
+        client.post(
+            "/cart/add/athletic-co.myshopify.com/ath_001",
+            data={"variant_id": "ath_001-8"},
+        )
         sess = _sess(client)
         items = sess.ctx.session.click_basket.get("athletic-co.myshopify.com", [])
         shoe = next((i for i in items if i["product_id"] == "ath_001"), None)
@@ -192,8 +207,14 @@ class TestCartInteractionsFromChatCards:
 
     def test_add_different_products_independent(self, client):
         client.get("/")
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
-        client.post("/cart/add/audio-hub.myshopify.com/aud_002")
+        client.post(
+            "/cart/add/athletic-co.myshopify.com/ath_001",
+            data={"variant_id": "ath_001-8"},
+        )
+        client.post(
+            "/cart/add/audio-hub.myshopify.com/aud_002",
+            data={"variant_id": "aud_002-Black"},
+        )
         sess = _sess(client)
         basket = sess.ctx.session.click_basket
         ath = basket.get("athletic-co.myshopify.com", [])
@@ -219,8 +240,7 @@ class TestAgentAddToCartToolUnchanged:
                 product_id="ath_007",
                 merchant_domain="athletic-co.myshopify.com",
                 quantity=1,
-                name="Stability Running Shoes",
-                price="159.00",
+                variant_id="ath_007-8-Standard",
             )
         )
         items = multi_merchant_ctx.session.click_basket.get("athletic-co.myshopify.com", [])

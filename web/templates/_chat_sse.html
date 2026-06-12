@@ -21,6 +21,74 @@
        bubble (just hit Send), bypass the near-bottom check.
 #}
 <script>
+// ── Diagnostic instrumentation (gated by ?debug=1 in URL) ─────────────
+// Enables verbose logging of:
+//   • every ac:sse CustomEvent (type + payload size)
+//   • every fetch to /chat/products-fragment (request size, response size)
+//   • every node added under #chat-log (especially .chat-product-card)
+// Off by default — zero overhead in production. To enable: append ?debug=1
+// to any /chat URL. State persists for the session via window.__CHAT_DEBUG.
+// Removable later; keeping it lets us re-enable diagnostics in seconds the
+// next time a chat-rendering regression appears.
+(function () {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("debug") === "1") window.__CHAT_DEBUG = true;
+  } catch (_) { /* ignore */ }
+  if (!window.__CHAT_DEBUG) return;
+  console.log("[chat] debug instrumentation ON");
+  // 1. ac:sse event logger
+  document.addEventListener("ac:sse", function (e) {
+    const evt = e.detail || {};
+    const t = evt.type || "?";
+    const d = evt.data || {};
+    const summary = (t === "products") ? ("products=" + (d.products || []).length)
+                  : (t === "text")     ? ("delta=" + ((d.delta || "").length) + "ch")
+                  : (t === "user")     ? ("text=" + JSON.stringify((d.text || "").slice(0, 40)))
+                  : (t === "click")    ? (d.action + " " + (d.name || ""))
+                  :                       JSON.stringify(d).slice(0, 80);
+    console.log("[chat] ac:sse", t, summary);
+  });
+  // 2. fetch logger — wrap window.fetch
+  const origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    const url = (typeof input === "string") ? input : (input && input.url) || "";
+    if (url.indexOf("/chat/products-fragment") >= 0) {
+      const bodyLen = init && init.body ? init.body.length : 0;
+      console.log("[chat] fetch products-fragment, body=" + bodyLen + "ch");
+      const t0 = performance.now();
+      return origFetch.apply(this, arguments).then(function (r) {
+        console.log("[chat] fetch products-fragment → status=" + r.status + " in " + Math.round(performance.now() - t0) + "ms");
+        return r;
+      }, function (err) {
+        console.error("[chat] fetch products-fragment FAILED:", err);
+        throw err;
+      });
+    }
+    return origFetch.apply(this, arguments);
+  };
+  // 3. MutationObserver on #chat-log — log every node added
+  const _logEl = document.getElementById("chat-log");
+  if (_logEl && typeof MutationObserver !== "undefined") {
+    const mo = new MutationObserver(function (mutations) {
+      mutations.forEach(function (m) {
+        m.addedNodes.forEach(function (n) {
+          if (n.nodeType !== 1) return;  // elements only
+          const tag = n.tagName;
+          const cls = n.className || "";
+          const cards = n.querySelectorAll ? n.querySelectorAll(".chat-product-card").length : 0;
+          console.log("[chat] DOM +", tag, cls.slice(0, 60), "cards=" + cards);
+        });
+      });
+    });
+    mo.observe(_logEl, { childList: true, subtree: true });
+  } else if (!_logEl) {
+    console.warn("[chat] debug: #chat-log not found at instrumentation init");
+  }
+})();
+</script>
+
+<script>
 (function () {
   const log = document.getElementById("chat-log");
   const status = document.getElementById("chat-status");
@@ -163,6 +231,14 @@
   // ── Sticky-scroll helpers ───────────────────────────────────────
   const NEAR_BOTTOM_PX = 120;
   let _scrollScheduled = false;
+  // When the user submits a message, this is set to the user's bubble.
+  // scheduleScroll then keeps THIS element pinned at the visible top of the
+  // chat-log (instead of scrolling the window to the bottom). The pin is
+  // cleared when the agent's run ends OR when the user manually scrolls.
+  // Without this pin, every text/click/error event auto-scrolls the page
+  // back to the bottom, pushing the user's own message above the viewport
+  // (the "I have to scroll up to see my own message" bug).
+  let _pinnedUserBubble = null;
 
   function isUserNearBottom() {
     const doc = document.documentElement;
@@ -171,16 +247,37 @@
   }
 
   function scheduleScroll(opts) {
-    // opts.force=true: scroll regardless of position (for user-submit case)
+    // Two modes:
+    //   1. PINNED (after user submits): keep _pinnedUserBubble at the top
+    //      of the visible chat-log so the user can read their own message
+    //      while the agent's reply streams in below it.
+    //   2. STICKY-BOTTOM (default): if user is near bottom, follow new
+    //      content to the bottom; otherwise leave them alone.
+    //
+    // Force-scrolls bypass the _scrollScheduled coalescing guard so
+    // back-to-back force calls each re-measure, and use behavior:"auto" so
+    // a smooth animation can't desync from DOM growth.
     const force = !!(opts && opts.force);
-    if (_scrollScheduled) return;
-    _scrollScheduled = true;
+    if (!force && _scrollScheduled) return;
+    if (!force) _scrollScheduled = true;
     window.requestAnimationFrame(() => {
-      _scrollScheduled = false;
+      if (!force) _scrollScheduled = false;
+      // PINNED mode wins — re-pin every time something would have scrolled.
+      if (_pinnedUserBubble && typeof _pinnedUserBubble.scrollIntoView === "function") {
+        try {
+          const rectBefore = _pinnedUserBubble.getBoundingClientRect();
+          _pinnedUserBubble.scrollIntoView({ block: "start", behavior: "auto" });
+          if (window.__CHAT_DEBUG) {
+            const rectAfter = _pinnedUserBubble.getBoundingClientRect();
+            console.log("[chat] PIN scroll: before.top=" + rectBefore.top + " after.top=" + rectAfter.top + " scrollY=" + window.scrollY);
+          }
+        } catch (e) { console.error("[chat] PIN scroll threw:", e); }
+        return;
+      }
       if (!force && !isUserNearBottom()) return;
       window.scrollTo({
         top: document.documentElement.scrollHeight,
-        behavior: "smooth",
+        behavior: force ? "auto" : "smooth",
       });
     });
   }
@@ -212,6 +309,31 @@
     scheduleScroll();
   }
 
+  function showTyping() {
+    if (document.getElementById("chat-typing")) return;
+    const wrap = document.createElement("div");
+    wrap.id = "chat-typing";
+    wrap.className = "text-left my-2";
+    wrap.innerHTML =
+      '<span class="inline-flex items-center gap-1 bg-white border border-slate-100 rounded-xl px-3 py-2">'
+      + '<span class="ac-typing-dot"></span>'
+      + '<span class="ac-typing-dot"></span>'
+      + '<span class="ac-typing-dot"></span>'
+      + '</span>';
+    log.appendChild(wrap);
+    scheduleScroll();
+  }
+
+  function hideTyping() {
+    const el = document.getElementById("chat-typing");
+    if (el) el.remove();
+  }
+
+  function bumpTypingToBottom() {
+    const el = document.getElementById("chat-typing");
+    if (el) { log.appendChild(el); scheduleScroll(); }
+  }
+
   // On page load: if history is non-empty, jump straight to the bottom
   // (no smooth-scroll) so the chat opens with the latest exchange
   // visible. Intentional: this is a navigation moment, not a streaming
@@ -222,6 +344,7 @@
     window.scrollTo(0, document.documentElement.scrollHeight);
     _attachCardHandlers(log);
   }
+  if (_pendingUserDedup) showTyping();
 
   // ── SSE event dispatcher ────────────────────────────────────────
   // We subscribe to the `ac:sse` DOM CustomEvent that _toast.html
@@ -258,8 +381,24 @@
         _skipUntilDone = false;
         currentAgentBubble = null;
         if (status) status.textContent = "thinking…";
+      } else if (t === "products") {
+        // SELF-HEAL: a products event is itself proof that a fresh run is
+        // underway — the server only emits products when discovery changed
+        // the product set this turn. If we were still in skip mode it means
+        // the prior `user`/`done` clearing path didn't fire (race or queue
+        // reordering), but the cards belong on screen anyway. Clear the flag
+        // so the products handler below processes the event normally.
+        // Without this, the user would see text appear but no cards (because
+        // the products event is swallowed by this `return`) — exactly the
+        // bug the user reported.
+        _skipUntilDone = false;
+        if (status) status.textContent = "thinking…";
+        // Fall through (do NOT return) so the products event reaches its
+        // handler below.
+      } else {
+        return;
       }
-      return;
+      if (t !== "products") return;
     }
     if (t === "user") {
       // SWALLOW the server's user echo — never draw a bubble from it. The
@@ -275,6 +414,7 @@
       if (status) status.textContent = "thinking…";
       return;
     } else if (t === "text") {
+      hideTyping();
       const delta = d.delta || "";
       // Defer behind any in-flight product-card fetch so cards render ABOVE
       // the summary (see _cardFetchGate). When nothing is pending this runs
@@ -288,26 +428,39 @@
       });
     } else if (t === "tool_start") {
       appendTool(d.name || "tool");
+      bumpTypingToBottom();
     } else if (t === "done") {
+      hideTyping();
       if (status) status.textContent = "idle";
-      // Route the bubble reset through the same gate so it can't run BEFORE
-      // a text delta that's still waiting on the card fetch (which would let
-      // the deferred delta recreate a bubble after this null, leaking it into
-      // the next turn).
-      _afterCards(() => { currentAgentBubble = null; });
+      // CRITICAL: clear the user-bubble pin through BOTH _afterCards (so
+      // the queued text delta runs with the pin) AND a delayed rAF (so the
+      // queued append/showTyping rAFs from the original submit run with the
+      // pin). Without the rAF delay, those rAFs fire AFTER the microtask
+      // that clears the pin and they scroll to bottom — pushing the user's
+      // bubble above the viewport. setTimeout(0) puts the clear behind ALL
+      // pending rAFs in the current frame.
+      _afterCards(() => {
+        currentAgentBubble = null;
+      });
+      setTimeout(() => { _pinnedUserBubble = null; }, 50);
     } else if (t === "bubble_end") {
+      hideTyping();
       // Close the current agent bubble so the next on_text starts a fresh one.
       // Fired after each gate Q&A response to keep intermediate replies and
       // the final purchase confirmation in separate chat bubbles. Gated for
       // the same ordering reason as `done`.
       _afterCards(() => { currentAgentBubble = null; });
     } else if (t === "error") {
+      hideTyping();
+      // Clear the pin so the error bubble can scroll into view normally.
+      _pinnedUserBubble = null;
       append("agent", "⚠ " + (d.message || "Something went wrong."));
       if (status) status.textContent = "error";
       if (typeof window.__toast === "function") {
         window.__toast(d.message || "Something went wrong.", "error");
       }
     } else if (t === "products") {
+      hideTyping();
       const items = d.products || [];
       if (!items.length) return;
       // Close any open streaming text bubble before inserting cards.
@@ -330,22 +483,41 @@
       })
       .then(function (r) { return r.text(); })
       .then(function (html) {
+        if (window.__CHAT_DEBUG) console.log("[chat] fragment HTML length:", html.length);
         if (html.trim()) {
           placeholder.innerHTML = html;
-          _attachCardHandlers(placeholder);
+          // Defensive: wrap handler binding in try/catch so a throw here
+          // can NEVER abort the .then() chain. Previously a throw left
+          // cards at opacity:0 (animation step never reached) — visually
+          // indistinguishable from "cards never injected." With CSS default
+          // .chat-product-card { opacity: 1 } cards are visible even if
+          // both the binding and animation steps fail.
+          try { _attachCardHandlers(placeholder); }
+          catch (err) { console.error("[chat] _attachCardHandlers threw:", err); }
           // Staggered entrance: each card fades+slides in slightly after the
           // previous one for a smooth cascade.
-          placeholder.querySelectorAll(".chat-product-card").forEach(function (card, i) {
-            card.style.animationDelay = (i * 140) + "ms";
-            card.classList.add("ac-card-in");
-          });
+          try {
+            placeholder.querySelectorAll(".chat-product-card").forEach(function (card, i) {
+              card.style.animationDelay = (i * 140) + "ms";
+              card.classList.add("ac-card-in");
+            });
+          } catch (err) { console.error("[chat] card animation setup threw:", err); }
         } else {
+          if (window.__CHAT_DEBUG) console.warn("[chat] fragment returned empty HTML");
           placeholder.remove();
         }
         scheduleScroll();
+      })
+      .catch(function (err) {
+        // Network/parse failure on the fragment fetch. Remove the empty
+        // placeholder so it doesn't leave dead space in the log, and log
+        // loudly so the next debug pass can find it.
+        console.error("[chat] /chat/products-fragment fetch failed:", err);
+        placeholder.remove();
       });
       _afterCards(() => fetchDone);
     } else if (t === "click") {
+      hideTyping();
       // Render a styled cart-action confirmation in the chat log instead of
       // just a toast. Uses the structured fields added to the click event.
       const action = d.action || "";
@@ -395,14 +567,55 @@
     // If we're still in the empty hero, reveal the active log in place so the
     // bubble has a visible home (no reload — keeps the one EventSource alive).
     if (window.__chatRevealActive) window.__chatRevealActive();
-    // Force-scroll: the user just hit Send, they always want to see their line.
-    append("user", text, { force: true });
+    // Append the user bubble.
+    const userBubble = append("user", text);
+    // Set the pin IMMEDIATELY after append so any queued scroll (from
+    // append's internal scheduleScroll and from showTyping below) sees
+    // the pin when their rAFs fire — those rAFs will scrollIntoView the
+    // user bubble instead of scrolling to bottom.
+    _pinnedUserBubble = userBubble;
     // A fresh submission supersedes any pending old-run dedup/skip state and
     // begins a new agent bubble.
     _skipUntilDone = false;
     _pendingUserDedup = false;
     currentAgentBubble = null;
     if (status) status.textContent = "thinking…";
+    // Show the typing wave the instant we start waiting for the reply.
+    showTyping();
+    // Aggressively re-pin the user bubble while the pin is active. Every
+    // attempt MUST check the pin is still ours — offline mode is so fast
+    // that `done` clears the pin before our delayed scrolls fire, and
+    // calling scheduleScroll() with a cleared pin falls through to scroll-
+    // to-bottom (the very bug we're fixing).
+    const _myBubble = userBubble;
+    function _rePin() {
+      if (_pinnedUserBubble === _myBubble && _myBubble) {
+        try { _myBubble.scrollIntoView({ block: "start", behavior: "auto" }); }
+        catch (_) { /* ignore */ }
+      }
+    }
+    // Multi-frame re-pin: rAF (next frame), 2x rAF (frame after that), then
+    // setTimeout-based catches in case the layout keeps shifting (empty-
+    // hero → active transition, font load, agent bubble reflow).
+    window.requestAnimationFrame(() => {
+      _rePin();
+      window.requestAnimationFrame(() => {
+        _rePin();
+        [60, 180, 400, 800].forEach((delay) => setTimeout(_rePin, delay));
+      });
+    });
+  });
+
+  // User scrolling cancels the pin so they can navigate freely (their
+  // explicit action wins over our auto-pin). Listen on window since the
+  // page is the scroll container.
+  window.addEventListener("wheel", () => { _pinnedUserBubble = null; }, { passive: true });
+  window.addEventListener("touchmove", () => { _pinnedUserBubble = null; }, { passive: true });
+  window.addEventListener("keydown", (e) => {
+    // arrow keys, page up/down, home, end, space all scroll
+    if (["PageUp","PageDown","ArrowUp","ArrowDown","Home","End"," "].includes(e.key)) {
+      _pinnedUserBubble = null;
+    }
   });
 
   // Clear input after submit (fires after the request is sent, so the

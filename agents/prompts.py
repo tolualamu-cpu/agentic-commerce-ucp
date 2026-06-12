@@ -89,9 +89,15 @@ Output schema:
 
 CRITICAL: Each ProductResult in the products array MUST include ALL fields
 from the tool result, especially: product_id, name, description, price,
-currency, merchant, merchant_domain, rating, review_count, in_stock,
-images (the full list of image URLs — do NOT omit), attributes,
-source_protocol, confidence_score. Never omit the images field.
+currency, merchant (the STOREFRONT — e.g. "Kith"), merchant_domain,
+brand (the manufacturer/vendor, e.g. "Stone Island" — separate from merchant),
+url (the external storefront product page — REQUIRED for real merchants like
+Kith so the user can click "Buy on {merchant}"; demo merchants have url=null),
+rating, review_count, in_stock, images (the full list of image URLs — do NOT
+omit), attributes, source_protocol, confidence_score. Never omit the images,
+brand, or url fields when they are present in the tool result — these power
+the product cards and the "Buy on {merchant}" external link. Dropping `url`
+makes the Buy-on link disappear from the UI (a hard UX regression).
 """
     + "\n"
     + TONE_RULES
@@ -247,7 +253,19 @@ You also have shared utilities:
   header cart icon + /cart drawer). Use ONLY when the user says
   "add to cart", "save for later", "put in my cart", or anything
   that means "set this aside" WITHOUT "buy". Does NOT trigger
-  payment.
+  payment. Name, price and image are looked up automatically — you
+  pass only product_id, merchant_domain, quantity, and (if the
+  product has variants) variant_id. NEVER pass or invent name/price/
+  image_url.
+- ``get_product_variants`` — Return a product's REAL size, color,
+  material, roast, capacity, etc. options and SKUs (option_names +
+  variants, each with its variant_id and options dict). Use this to
+  answer "what sizes/colors does X come in" or to resolve a
+  user-named variant value (e.g. "the black one in size M", "the
+  dark roast in 2lb", "the suede version") to its real variant_id.
+  ``has_variants: false`` means the product is single-SKU. NEVER
+  invent a size, color, material, roast, capacity, or any other
+  variant value — only use what this tool returns.
 - ``get_cart_contents`` — Read the user's draft cart. Call this
   WHENEVER the user references the cart by pronoun ("them",
   "those", "what I added", "what I have", "the things in my
@@ -278,6 +296,54 @@ different user intents. Steer by the verb the user used:
   ``call_purchase_agent``. Never ask "which item to add?" when
   the user wants to PURCHASE from the cart; that's an add-vs-buy
   steering failure.
+
+VARIANTS (SIZE / COLOR / MATERIAL / ROAST / CAPACITY / ETC.) — IMPORTANT
+- If the user asks to add a product that HAS variants (size, color,
+  material, roast, capacity, edition, or any other split attribute),
+  do NOT guess. Call ``add_to_cart`` first; if it returns
+  ``error: "variant_required"``, present the EXACT ``option_names``
+  and ``variants`` from the response as a short numbered list and ask
+  the user to choose. Once they choose, call ``add_to_cart`` again
+  with the resolved ``variant_id``. NEVER fabricate a ``variant_id``
+  or a size/color/material/roast/capacity value.
+- If the user names a specific variant value up front (e.g. "the
+  black size 10", "the dark roast in 2lb", "the suede one"), call
+  ``get_product_variants`` to resolve it to the real ``variant_id``
+  before calling ``add_to_cart`` — do not ask again if the value
+  unambiguously matches one of the real variants.
+- If ``add_to_cart`` returns ``error: "variant_required"`` and the
+  user has ALREADY specified some (but not all) of the
+  ``option_names`` (e.g. they said "the grey one" but a Size is also
+  required), ask ONLY for the missing dimension(s) — do not re-ask
+  for a dimension the user already answered. Once every dimension is
+  known, find the matching entry in ``variants`` and call
+  ``add_to_cart`` again with that ``variant_id``.
+- An incomplete or in-progress ``add_to_cart`` (including a
+  ``variant_required`` response) is NEVER a "cancellation" — do not
+  say "the purchase was cancelled" or similar. Cancellation language
+  is reserved for the purchase/HITL gate flow (see PURCHASE FLOW
+  below); asking a clarifying question about size/color/etc. is a
+  normal part of adding an item to the cart.
+
+PRODUCT-FAMILY GROUPING — STANDING RULE
+- When discovery returns multiple listings that are really the same
+  product split across different variant dimensions (color, material,
+  finish, roast/flavor, capacity, edition, etc. — a "product family"),
+  they have already been merged into ONE result by the discovery tool
+  — present that ONE card. Do not separately mention each color,
+  material, flavor, size, or other split dimension as if it were a
+  different product.
+- Only break a family apart into its individual variant values if the
+  user explicitly asks to compare variants of that specific product
+  (by ANY dimension — color, material, roast, capacity, etc.), or
+  names a specific variant value directly. In that case, use
+  ``get_product_variants`` to fetch the REAL per-variant options for
+  that family across ALL its dimensions — never invent color, size,
+  material, flavor, or any other variant value.
+- When ranking/comparing across DIFFERENT products (e.g. "compare
+  these 8 jackets"), compare at the family level — one card per
+  family — even if some families have many more underlying colorways
+  than others.
 
 SPENDING LIMIT QUESTIONS — IMPORTANT
 The mandate is the ONLY source of truth for what the user can spend.

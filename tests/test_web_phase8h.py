@@ -179,7 +179,8 @@ class TestPurgePurchasedFromCart:
             mandate_id="m_test",
         )
 
-    def test_removes_only_purchased_product_ids(self, tool_ctx):
+    def test_removes_only_purchased_product_ids(self, multi_merchant_ctx):
+        tool_ctx = multi_merchant_ctx
         # Seed two items in the cart from the same merchant
         orch = self._orch()
         asyncio.run(
@@ -188,8 +189,6 @@ class TestPurgePurchasedFromCart:
                 product_id="cof_001",
                 merchant_domain="coffee-bar.myshopify.com",
                 quantity=1,
-                name="Mug",
-                price="12.00",
             )
         )
         asyncio.run(
@@ -198,8 +197,7 @@ class TestPurgePurchasedFromCart:
                 product_id="cof_002",
                 merchant_domain="coffee-bar.myshopify.com",
                 quantity=1,
-                name="Espresso",
-                price="6.00",
+                variant_id="cof_002-16oz",
             )
         )
         before = list(tool_ctx.session.click_basket["coffee-bar.myshopify.com"])
@@ -216,7 +214,8 @@ class TestPurgePurchasedFromCart:
         ids = {it["product_id"] for it in remaining}
         assert ids == {"cof_002"}, f"only cof_001 should have been purged; remaining: {ids}"
 
-    def test_drops_empty_merchant_bucket(self, tool_ctx):
+    def test_drops_empty_merchant_bucket(self, multi_merchant_ctx):
+        tool_ctx = multi_merchant_ctx
         orch = self._orch()
         asyncio.run(
             orch._add_to_cart(
@@ -224,8 +223,6 @@ class TestPurgePurchasedFromCart:
                 product_id="cof_001",
                 merchant_domain="coffee-bar.myshopify.com",
                 quantity=1,
-                name="Mug",
-                price="12.00",
             )
         )
         # Buy the only item from that merchant
@@ -237,7 +234,8 @@ class TestPurgePurchasedFromCart:
         # Empty bucket should be removed (no dangling {merchant: []})
         assert "coffee-bar.myshopify.com" not in tool_ctx.session.click_basket
 
-    def test_does_not_touch_other_merchant_baskets(self, tool_ctx):
+    def test_does_not_touch_other_merchant_baskets(self, multi_merchant_ctx):
+        tool_ctx = multi_merchant_ctx
         orch = self._orch()
         asyncio.run(
             orch._add_to_cart(
@@ -245,8 +243,6 @@ class TestPurgePurchasedFromCart:
                 product_id="cof_001",
                 merchant_domain="coffee-bar.myshopify.com",
                 quantity=1,
-                name="Mug",
-                price="12.00",
             )
         )
         asyncio.run(
@@ -255,8 +251,7 @@ class TestPurgePurchasedFromCart:
                 product_id="ath_007",
                 merchant_domain="athletic-co.myshopify.com",
                 quantity=1,
-                name="Shoes",
-                price="159.00",
+                variant_id="ath_007-8-Standard",
             )
         )
         orch._purge_purchased_from_cart(
@@ -268,7 +263,8 @@ class TestPurgePurchasedFromCart:
         athletic = tool_ctx.session.click_basket.get("athletic-co.myshopify.com", [])
         assert any(it["product_id"] == "ath_007" for it in athletic)
 
-    def test_no_op_when_purchased_items_not_in_cart(self, tool_ctx):
+    def test_no_op_when_purchased_items_not_in_cart(self, multi_merchant_ctx):
+        tool_ctx = multi_merchant_ctx
         # User bought something they never added to cart — purge must
         # not crash and the empty cart stays empty.
         orch = self._orch()
@@ -279,7 +275,8 @@ class TestPurgePurchasedFromCart:
         )
         assert tool_ctx.session.click_basket == {}
 
-    def test_notifier_pushes_cart_update_after_purge(self, tool_ctx):
+    def test_notifier_pushes_cart_update_after_purge(self, multi_merchant_ctx):
+        tool_ctx = multi_merchant_ctx
         # Wire a notifier so we can capture the cart_update event
         received = []
         tool_ctx.cart_event_notifier = lambda evt: received.append(evt)
@@ -291,8 +288,6 @@ class TestPurgePurchasedFromCart:
                 product_id="cof_001",
                 merchant_domain="coffee-bar.myshopify.com",
                 quantity=2,
-                name="Mug",
-                price="12.00",
             )
         )
         received.clear()  # ignore the add's notification

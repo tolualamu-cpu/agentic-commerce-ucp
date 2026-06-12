@@ -10,7 +10,15 @@ from tools import discovery_tools, evaluation_tools
 class DiscoveryAgent(BaseAgent):
     model = "claude-haiku-4-5"
     system_prompt = DISCOVERY
-    max_tokens = 2048
+    # 2048 was insufficient for real-merchant catalogues like Kith where a
+    # single product's description can be 100+ tokens (Stone Island collab
+    # specs, WTAPS material details, etc.). With 4-6 results the JSON output
+    # exceeded 2048 and was silently truncated mid-string, producing
+    # un-parseable JSON. The orchestrator then saw `{"parse_error":
+    # "non_json"}` and never populated last_discovered_products — so the
+    # products SSE event never fired and no cards appeared in the chat UI.
+    # Bumped to 8192 to comfortably fit ~10 products with verbose descriptions.
+    max_tokens = 8192
 
     tool_specs = [
         make_tool_spec(

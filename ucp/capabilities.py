@@ -13,15 +13,26 @@ from models.ucp_profile import UCPProfile
 
 
 class UCPCapability:
-    # Core
+    # Core (pre-2026 namespaces)
     CHECKOUT = "dev.ucp.shopping.checkout"
     IDENTITY_LINKING = "dev.ucp.identity.linking"
     ORDER_MANAGEMENT = "dev.ucp.orders.management"
     PAYMENT_TOKENS = "dev.ucp.payments.token_exchange"
-    # Extensions
+    # Extensions (pre-2026 namespaces)
     AP2_MANDATES = "dev.ucp.extensions.ap2"
     DISCOUNTS = "dev.ucp.extensions.discounts"
     FULFILLMENT = "dev.ucp.extensions.fulfillment"
+
+    # 2026-04-08 namespaces — shopping sub-capabilities
+    CART = "dev.ucp.shopping.cart"
+    ORDER = "dev.ucp.shopping.order"
+    SHOPPING_FULFILLMENT = "dev.ucp.shopping.fulfillment"
+    SHOPPING_DISCOUNT = "dev.ucp.shopping.discount"
+    CATALOG_SEARCH = "dev.ucp.shopping.catalog.search"
+    CATALOG_LOOKUP = "dev.ucp.shopping.catalog.lookup"
+
+    # 2026-04-08 Shopify-proprietary extensions
+    SHOPIFY_CATALOG = "dev.shopify.catalog"
 
 
 AGENT_CAPABILITIES: tuple[str, ...] = (
@@ -30,6 +41,13 @@ AGENT_CAPABILITIES: tuple[str, ...] = (
     UCPCapability.PAYMENT_TOKENS,
     UCPCapability.AP2_MANDATES,
     UCPCapability.DISCOUNTS,
+    # 2026-04-08
+    UCPCapability.CART,
+    UCPCapability.ORDER,
+    UCPCapability.SHOPPING_FULFILLMENT,
+    UCPCapability.SHOPPING_DISCOUNT,
+    UCPCapability.CATALOG_SEARCH,
+    UCPCapability.CATALOG_LOOKUP,
 )
 
 

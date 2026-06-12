@@ -107,6 +107,22 @@ def create_app() -> FastAPI:
 
     templates.env.filters["money"] = _money
 
+    # Jinja filter: variant_dicts(variants) — coerce a list of
+    # ``ProductVariant`` (pydantic models, as returned by ProductResult
+    # objects) OR plain dicts (as stored in session caches via
+    # model_dump(mode="json")) into a list of JSON-safe dicts, ready for
+    # ``|tojson`` in the variant picker's data-product blob.
+    def _variant_dicts(variants):
+        out = []
+        for v in variants or []:
+            if hasattr(v, "model_dump"):
+                out.append(v.model_dump(mode="json"))
+            else:
+                out.append(v)
+        return out
+
+    templates.env.filters["variant_dicts"] = _variant_dicts
+
     # Jinja global: mandate_info(request) — returns the active mandate and
     # today's spend so every page can render the Carto daily-limit widget
     # in the navbar without requiring individual routers to pass context.

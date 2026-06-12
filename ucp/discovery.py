@@ -18,6 +18,11 @@ import httpx
 from config.settings import settings
 from models.ucp_profile import UCPProfile
 from storage.db import DB, ProfileCacheQ
+from ucp.profile_parser import (
+    ProfileParserRegistry,
+    _extract_supported_versions,
+    get_default_registry,
+)
 
 
 DEFAULT_STUB_PATH = Path(__file__).resolve().parent.parent / "config" / "merchant_profiles.json"
@@ -49,12 +54,14 @@ class UCPProfileDiscovery:
         http_client: httpx.AsyncClient | None = None,
         stub_path: Path = DEFAULT_STUB_PATH,
         ttl_seconds: int | None = None,
+        parser_registry: ProfileParserRegistry | None = None,
     ):
         self.db = db
         self._http = http_client
         self._owns_http = http_client is None
         self.stub_path = stub_path
         self.ttl = ttl_seconds if ttl_seconds is not None else settings.profile_cache_ttl_seconds
+        self._registry = parser_registry if parser_registry is not None else get_default_registry()
         self._stubs = self._load_stubs()
 
     def _load_stubs(self) -> dict[str, dict[str, Any]]:
@@ -100,8 +107,23 @@ class UCPProfileDiscovery:
             if resp.status_code != 200:
                 return None
             data = resp.json()
-            data.setdefault("merchant_domain", merchant_domain)
-            return UCPProfile(**data)
+
+            # If the merchant publishes multiple spec versions, re-fetch the
+            # highest version we have a parser for.  This guarantees we always
+            # parse a version we know rather than hoping the default root profile
+            # matches our parser's expected shape.
+            supported = _extract_supported_versions(data)
+            if supported:
+                best_url = self._registry.negotiate_version_url(supported)
+                if best_url:
+                    v_resp = await self.http.get(best_url)
+                    if v_resp.status_code == 200:
+                        data = v_resp.json()
+
+            normalised = self._registry.parse(data, merchant_domain)
+            if normalised is None:
+                return None
+            return UCPProfile(**normalised)
         except (httpx.HTTPError, ValueError):
             return None
 

@@ -213,7 +213,10 @@ class TestCartAddAfterProductCards:
         """Add to cart after the orchestrator run completes: next message works."""
         client.get("/")
         # Add product to cart (simulates clicking chat product card AFTER run)
-        r_add = client.post("/cart/add/athletic-co.myshopify.com/ath_001")
+        r_add = client.post(
+            "/cart/add/athletic-co.myshopify.com/ath_001",
+            data={"variant_id": "ath_001-8"},
+        )
         assert r_add.status_code in (200, 302, 303)
 
         # Verify basket state is valid
@@ -236,7 +239,10 @@ class TestCartAddAfterProductCards:
         )
 
         # Cart add appends a click note — this is safe because no tool_use pending
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
+        client.post(
+            "/cart/add/athletic-co.myshopify.com/ath_001",
+            data={"variant_id": "ath_001-8"},
+        )
 
         convo = sess.ctx.session.conversation
         # After strip (which happens at start of next run), must still be valid

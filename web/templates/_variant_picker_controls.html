@@ -1,0 +1,138 @@
+{# Inline variant picker controls for product_detail.html.
+   Unlike _variant_picker_modal.html (a global overlay opened from a card's
+   "Add to cart" click), this renders DIRECTLY on the product detail page —
+   above the quantity + add-to-cart CTA — since the page is already a
+   dedicated single-product view with no need for a modal.
+
+   Renders into the #product-variants placeholder. On selection, updates:
+     - the hidden <input name="variant_id" id="pdp-variant-id"> in the
+       add-to-cart form (so it's submitted with the POST), and
+     - the displayed price (#pdp-price) when the matched variant overrides
+       the base price, and
+     - the submit button (#pdp-add-btn): disabled + "Select options" until
+       every dimension is chosen, "Out of stock" if the matched variant is
+       unavailable, otherwise enabled "Add to cart".
+
+   Only rendered when product.variants is non-empty.
+#}
+<div id="pdp-variant-controls" class="space-y-4"
+     data-option-names='{{ product.option_names | tojson }}'
+     data-variants='{{ product.variants | variant_dicts | tojson }}'
+     data-base-price='{{ product.price | string }}'></div>
+
+<script>
+(function () {
+  const root = document.getElementById("pdp-variant-controls");
+  if (!root) return;
+
+  const optionNames = JSON.parse(root.dataset.optionNames || "[]");
+  const variants = JSON.parse(root.dataset.variants || "[]");
+  const basePrice = root.dataset.basePrice || "";
+
+  // NOTE: this partial is included ABOVE the add-to-cart form in
+  // product_detail.html, so #pdp-variant-id / #pdp-add-btn do not exist in
+  // the DOM yet when this script first runs. Look them up lazily (inside
+  // render(), at the point of use) rather than caching getElementById
+  // results once at the top -- caching here would permanently capture
+  // null and the button would never update.
+
+  let selections = {};
+
+  function valuesFor(dimension) {
+    const seen = [];
+    variants.forEach((v) => {
+      const val = (v.options || {})[dimension];
+      if (val != null && seen.indexOf(val) === -1) seen.push(val);
+    });
+    return seen;
+  }
+
+  function findMatch() {
+    if (optionNames.some((n) => !selections[n])) return null;
+    return variants.find((v) => optionNames.every((n) => (v.options || {})[n] === selections[n])) || null;
+  }
+
+  function render() {
+    root.innerHTML = "";
+    optionNames.forEach((dimension) => {
+      const wrap = document.createElement("div");
+      const label = document.createElement("p");
+      label.className = "text-xs font-medium text-slate-700 mb-1.5";
+      label.textContent = dimension;
+      wrap.appendChild(label);
+
+      const values = valuesFor(dimension);
+
+      if (dimension.toLowerCase() === "color") {
+        const row = document.createElement("div");
+        row.className = "flex flex-wrap gap-2";
+        values.forEach((val) => {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.textContent = val;
+          chip.className = "px-3 py-1.5 rounded-full text-xs font-medium border transition " +
+            (selections[dimension] === val
+              ? "bg-slate-900 text-white border-slate-900"
+              : "bg-white text-slate-700 border-slate-300 hover:border-slate-500");
+          chip.addEventListener("click", () => {
+            selections[dimension] = val;
+            render();
+          });
+          row.appendChild(chip);
+        });
+        wrap.appendChild(row);
+      } else {
+        const select = document.createElement("select");
+        select.className = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm";
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Select " + dimension;
+        select.appendChild(placeholder);
+        values.forEach((val) => {
+          const opt = document.createElement("option");
+          opt.value = val;
+          opt.textContent = val;
+          if (selections[dimension] === val) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.addEventListener("change", () => {
+          if (select.value) selections[dimension] = select.value;
+          else delete selections[dimension];
+          render();
+        });
+        wrap.appendChild(select);
+      }
+
+      root.appendChild(wrap);
+    });
+
+    const match = findMatch();
+    const variantIdInput = document.getElementById("pdp-variant-id");
+    const priceEl = document.getElementById("pdp-price");
+    const addBtn = document.getElementById("pdp-add-btn");
+
+    if (variantIdInput) variantIdInput.value = match ? match.variant_id : "";
+    if (priceEl) priceEl.textContent = "$" + (match && match.price != null ? match.price : basePrice);
+
+    if (!addBtn) return;
+    if (!match) {
+      addBtn.disabled = true;
+      addBtn.textContent = "Select options";
+    } else if (match.in_stock === false) {
+      addBtn.disabled = true;
+      addBtn.textContent = "Out of stock";
+    } else {
+      addBtn.disabled = false;
+      addBtn.textContent = "Add to cart";
+    }
+  }
+
+  // Pre-select dimensions that have only one possible value.
+  optionNames.forEach((dimension) => {
+    const values = valuesFor(dimension);
+    if (values.length === 1) selections[dimension] = values[0];
+  });
+
+  render();
+})();
+</script>

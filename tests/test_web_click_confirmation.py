@@ -32,6 +32,17 @@ def _sess(client) -> "session_mod.WebSession":
     return session_mod.get_session_by_id(sid)
 
 
+# product_id -> variant_id for catalogue products that carry variants/options
+_VARIANT_IDS = {
+    "ath_001": "ath_001-8",
+    "aud_002": "aud_002-Black",
+}
+
+
+def _add_data(product_id: str) -> dict:
+    return {"variant_id": _VARIANT_IDS[product_id]} if product_id in _VARIANT_IDS else {}
+
+
 def _drain_click_events(sess) -> list[dict]:
     events = []
     while not sess.sse_queue.empty():
@@ -54,7 +65,7 @@ class TestAddToCartClickEventStructure:
         client.get("/")
         # Post FIRST — this creates sse_queue lazily inside the background
         # thread's event loop (so the main thread doesn't need a running loop)
-        client.post(f"/cart/add/{merchant}/{product_id}")
+        client.post(f"/cart/add/{merchant}/{product_id}", data=_add_data(product_id))
         # Now retrieve the session after the queue was created in the bg thread
         sess = _sess(client)
         return _drain_click_events(sess)
@@ -112,11 +123,11 @@ class TestAddToCartClickEventStructure:
     def test_second_add_produces_updated_action(self, client):
         """Adding same product twice: first = 'added', second = 'updated'."""
         client.get("/")
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
+        client.post("/cart/add/athletic-co.myshopify.com/ath_001", data=_add_data("ath_001"))
         sess = _sess(client)
         # Drain first event (queue already created in bg thread)
         _drain_click_events(sess)
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
+        client.post("/cart/add/athletic-co.myshopify.com/ath_001", data=_add_data("ath_001"))
         events = _drain_click_events(sess)
         assert events
         assert events[0]["data"]["action"] == "updated"
@@ -128,20 +139,20 @@ class TestAddToCartClickEventStructure:
 class TestRemoveFromCartClickEvent:
     def test_remove_shoe_event_action_is_removed(self, client):
         client.get("/")
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
+        client.post("/cart/add/athletic-co.myshopify.com/ath_001", data=_add_data("ath_001"))
         sess = _sess(client)
         _drain_click_events(sess)
-        client.post("/cart/remove/athletic-co.myshopify.com/ath_001")
+        client.post("/cart/remove/athletic-co.myshopify.com/ath_001", data=_add_data("ath_001"))
         events = _drain_click_events(sess)
         assert events
         assert events[0]["data"]["action"] == "removed"
 
     def test_remove_headphone_event_has_name(self, client):
         client.get("/")
-        client.post("/cart/add/audio-hub.myshopify.com/aud_002")
+        client.post("/cart/add/audio-hub.myshopify.com/aud_002", data=_add_data("aud_002"))
         sess = _sess(client)
         _drain_click_events(sess)
-        client.post("/cart/remove/audio-hub.myshopify.com/aud_002")
+        client.post("/cart/remove/audio-hub.myshopify.com/aud_002", data=_add_data("aud_002"))
         events = _drain_click_events(sess)
         assert events
         assert "name" in events[0]["data"]
@@ -164,20 +175,26 @@ class TestRemoveFromCartClickEvent:
 class TestUpdateQuantityClickEvent:
     def test_update_quantity_produces_updated_action(self, client):
         client.get("/")
-        client.post("/cart/add/athletic-co.myshopify.com/ath_001")
+        client.post("/cart/add/athletic-co.myshopify.com/ath_001", data=_add_data("ath_001"))
         sess = _sess(client)
         _drain_click_events(sess)
-        client.post("/cart/quantity/athletic-co.myshopify.com/ath_001", data={"quantity": 3})
+        client.post(
+            "/cart/quantity/athletic-co.myshopify.com/ath_001",
+            data={"quantity": 3, **_add_data("ath_001")},
+        )
         events = _drain_click_events(sess)
         assert events
         assert events[0]["data"]["action"] == "updated"
 
     def test_quantity_zero_produces_removed_action(self, client):
         client.get("/")
-        client.post("/cart/add/audio-hub.myshopify.com/aud_002")
+        client.post("/cart/add/audio-hub.myshopify.com/aud_002", data=_add_data("aud_002"))
         sess = _sess(client)
         _drain_click_events(sess)
-        client.post("/cart/quantity/audio-hub.myshopify.com/aud_002", data={"quantity": 0})
+        client.post(
+            "/cart/quantity/audio-hub.myshopify.com/aud_002",
+            data={"quantity": 0, **_add_data("aud_002")},
+        )
         events = _drain_click_events(sess)
         assert events
         assert events[0]["data"]["action"] == "removed"

@@ -96,10 +96,17 @@ async def stream_until_superseded(queue, superseded, *, timeout=None, is_disconn
     HTTP connection ends the stream without consuming an event. The gate
     WebSocket passes ``None`` (its own receive loop detects disconnect).
     """
+    import os
+
+    _debug = os.environ.get("CARTO_STREAM_DEBUG") == "1"
     while True:
         if is_disconnected is not None and await is_disconnected():
+            if _debug:
+                print(f"[stream] disconnect detected, queue_size={queue.qsize()}", flush=True)
             return
         if superseded.done():
+            if _debug:
+                print(f"[stream] superseded at loop top, queue_size={queue.qsize()}", flush=True)
             return
         get_task = asyncio.ensure_future(queue.get())
         done, _pending = await asyncio.wait(
@@ -113,12 +120,25 @@ async def stream_until_superseded(queue, superseded, *, timeout=None, is_disconn
                 # Superseded at the same moment we popped an event — hand it
                 # back so the now-active connection receives it, then stop.
                 queue.put_nowait(evt)
+                if _debug:
+                    etype = evt.get("type", "?") if isinstance(evt, dict) else "raw"
+                    print(
+                        f"[stream] superseded mid-pop, re-queued {etype}, queue_size={queue.qsize()}",
+                        flush=True,
+                    )
                 return
+            if _debug and isinstance(evt, dict):
+                print(
+                    f"[stream] yield {evt.get('type', '?')}, remaining queue_size={queue.qsize()}",
+                    flush=True,
+                )
             yield evt
             continue
         # get() did not complete — cancel it (safe: nothing was popped).
         get_task.cancel()
         if superseded.done():
+            if _debug:
+                print(f"[stream] superseded during wait, queue_size={queue.qsize()}", flush=True)
             return
         # Neither event nor supersede within the window → heartbeat.
         yield KEEPALIVE

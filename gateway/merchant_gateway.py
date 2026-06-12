@@ -83,6 +83,17 @@ class MerchantGateway:
         return client
 
     async def _build_client(self, merchant_domain: str) -> MerchantClient | None:
+        # Direct adapters take priority over UCP routing.
+        # They represent merchants we have deliberately onboarded with a vetted,
+        # tested transport (StubShopifyTransport for demo merchants,
+        # LiveShopifyTransport for live merchants like Kith).
+        # UCP client routing applies only to merchants we discover dynamically
+        # with no pre-registered adapter.  When a live merchant's UCP MCP
+        # integration has been validated end-to-end, remove it from
+        # direct_adapters to let it graduate to the UCP path.
+        if merchant_domain in self.direct_adapters:
+            return self.direct_adapters[merchant_domain]
+
         profile = await self.discovery.try_discover(merchant_domain)
 
         if profile is not None and profile.capabilities:
@@ -93,9 +104,6 @@ class MerchantGateway:
                     return UCPMCPClient(profile, self.signer)
                 # default to REST for "rest" or unknown
                 return UCPRestClient(profile, self.signer, http_client=self.ucp_http_client)
-
-        if merchant_domain in self.direct_adapters:
-            return self.direct_adapters[merchant_domain]
 
         if self.default_adapter_factory is not None:
             return self.default_adapter_factory(merchant_domain)

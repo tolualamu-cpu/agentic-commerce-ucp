@@ -51,8 +51,21 @@ def _sess(client) -> "session_mod.WebSession":
     return session_mod.get_session_by_id(sid)
 
 
-def _add(client, merchant, product_id, qty=1):
-    return client.post(f"/cart/add/{merchant}/{product_id}", data={"quantity": qty})
+def _add(client, merchant, product_id, qty=1, variant_id=None):
+    data = {"quantity": qty}
+    if variant_id:
+        data["variant_id"] = variant_id
+    return client.post(f"/cart/add/{merchant}/{product_id}", data=data)
+
+
+# product_id -> variant_id for catalogue products that carry variants/options
+_VARIANT_IDS = {
+    "ath_001": "ath_001-8",
+    "ath_006": "ath_006-8",
+    "aud_001": "aud_001-Black",
+    "aud_002": "aud_002-Black",
+    "cof_003": "cof_003-12oz",
+}
 
 
 ATH = "athletic-co.myshopify.com"
@@ -97,7 +110,7 @@ class TestCartContentScaffolding:
     )
     def test_count_reflects_single_merchant_basket(self, client, merchant, pid):
         client.get("/")
-        _add(client, merchant, pid, qty=2)
+        _add(client, merchant, pid, qty=2, variant_id=_VARIANT_IDS.get(pid))
         r = client.get("/cart")
         assert 'data-item-count="2"' in r.text
         # Items present means the empty-state CTA is hidden.
@@ -105,8 +118,8 @@ class TestCartContentScaffolding:
 
     def test_count_reflects_cross_merchant_basket(self, client):
         client.get("/")
-        _add(client, ATH, "ath_001", qty=1)
-        _add(client, AUD, "aud_001", qty=1)
+        _add(client, ATH, "ath_001", qty=1, variant_id=_VARIANT_IDS["ath_001"])
+        _add(client, AUD, "aud_001", qty=1, variant_id=_VARIANT_IDS["aud_001"])
         _add(client, COF, "cof_001", qty=3)
         r = client.get("/cart")
         # 1 + 1 + 3 = 5 items across three merchants.
@@ -130,7 +143,7 @@ class TestPostPurchaseState:
         orchestrator purges bought items from click_basket. The cart page
         the refresh fetch pulls in must then show the empty state."""
         client.get("/")
-        _add(client, merchant, pid, qty=1)
+        _add(client, merchant, pid, qty=1, variant_id=_VARIANT_IDS.get(pid))
         # Confirm it's non-empty first.
         assert 'data-item-count="1"' in client.get("/cart").text
 
@@ -147,7 +160,7 @@ class TestPostPurchaseState:
         """A purchase clears only the purchased merchant's bucket; items
         from a different merchant remain so the cart isn't shown empty."""
         client.get("/")
-        _add(client, ATH, "ath_001", qty=1)
+        _add(client, ATH, "ath_001", qty=1, variant_id=_VARIANT_IDS["ath_001"])
         _add(client, COF, "cof_001", qty=2)
         assert 'data-item-count="3"' in client.get("/cart").text
 

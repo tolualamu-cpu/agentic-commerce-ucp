@@ -23,7 +23,11 @@ class SessionState:
     # or by the agent's ``add_to_cart`` tool. Distinct from the gate's
     # purchase basket: items here do NOT trigger payment until the user
     # explicitly buys. Shape: {merchant_domain: [item_dict, ...]} where
-    # each item has product_id, name, price, currency, quantity, line_total.
+    # each item has product_id, variant_id (str | None), name, price,
+    # currency, quantity, line_total, selected_options (dict[str, str],
+    # empty for no-variant products). Line identity is the composite key
+    # (product_id, variant_id) — two variants of the same product are two
+    # separate lines; variant_id=None preserves single-SKU behavior.
     click_basket: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # Product card sets shown in the chat UI, keyed by conversation turn count
     # at the time they were emitted. Used to re-render cards on page reload.
@@ -36,6 +40,17 @@ class SessionState:
     # from ``last_discovered_products`` means a re-show turn never mutates
     # the discovery cache or triggers a search.
     cards_to_show: list[dict[str, Any]] = field(default_factory=list)
+    # Multi-listing "product families" (see agents.product_grouping) found
+    # during the most recent discovery, keyed by the family's primary
+    # ``product_id`` (the id shown as the single card). Each value is a
+    # ``ProductFamily.model_dump()`` dict. Only families with >1 member are
+    # stored — family-of-1 products (the common case) have nothing to
+    # resolve here and are looked up directly via get_product_details.
+    # Used by ``_add_to_cart``/``_get_product_variants`` to resolve
+    # family-synthesized ``variant_id``s of the form
+    # "{member_product_id}:{member_variant_id}" back to the underlying
+    # member product + variant. Reset on each new discovery run.
+    product_families: dict[str, dict[str, Any]] = field(default_factory=dict)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def append_user(self, content: str) -> None:

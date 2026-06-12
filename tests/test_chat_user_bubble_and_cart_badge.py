@@ -71,8 +71,25 @@ class TestUserBubbleRenderedOptimistically:
         )
         # The optimistic handler reads the typed text and appends a user bubble,
         # and reveals the in-place active log so the bubble has a visible home.
-        assert 'append("user", text, { force: true })' in html
+        # (Previously this used `append("user", text, {force:true})` — the
+        # force-scroll arg was removed when scrollIntoView replaced the
+        # window.scrollTo path that hid the bubble under the sticky input.)
+        assert 'append("user", text)' in html, "optimistic user bubble must be appended on submit"
         assert "window.__chatRevealActive" in html
+        # The autoscroll path "pins" the freshly-appended user bubble so that
+        # subsequent SSE-triggered scrolls (text/cards/error/done) keep
+        # bringing the bubble back to the visible top instead of scrolling
+        # to bottom (which would push the user's message above the viewport).
+        assert "_pinnedUserBubble = userBubble" in html, (
+            "user bubble must be pinned on submit so subsequent agent-event "
+            "auto-scrolls keep it visible (otherwise the user has to scroll "
+            "up to see their own message)"
+        )
+        # scheduleScroll must honour the pin by calling scrollIntoView on it.
+        assert "_pinnedUserBubble.scrollIntoView" in html, (
+            "scheduleScroll must call scrollIntoView on the pinned user "
+            "bubble (the auto-scroll-to-bottom path overrides element scroll)"
+        )
 
     def test_sse_user_echo_is_swallowed_not_rendered(self, client):
         """The SSE ``user`` echo must NEVER draw a bubble — it is a guaranteed
@@ -104,7 +121,9 @@ class TestUserBubbleRenderedOptimistically:
         )
         html = client.get("/chat").text
         assert 'form.addEventListener("htmx:beforeRequest"' in html
-        assert 'append("user", text, { force: true })' in html
+        # See sibling test above — the force-scroll arg was removed when
+        # scrollIntoView replaced the bottom-scroll path.
+        assert 'append("user", text)' in html
 
 
 # ─── BUG B — client wiring: absolute badge, single notification ───────────────
@@ -143,6 +162,28 @@ MERCHANT_PRODUCTS = [
     pytest.param("coffee-bar.myshopify.com", "cof_001", "cof_003", id="coffee-bar"),
 ]
 
+# product_id -> variant_id for catalogue products that carry variants/options
+_VARIANT_IDS = {
+    "ath_001": "ath_001-8",
+    "ath_003": "ath_003-S-Black",
+    "aud_001": "aud_001-Black",
+    "cof_003": "cof_003-12oz",
+}
+
+
+def _add(client, merchant, pid, **kw):
+    data = {}
+    if pid in _VARIANT_IDS:
+        data["variant_id"] = _VARIANT_IDS[pid]
+    return client.post(f"/cart/add/{merchant}/{pid}", data=data, **kw)
+
+
+def _remove(client, merchant, pid, **kw):
+    data = {}
+    if pid in _VARIANT_IDS:
+        data["variant_id"] = _VARIANT_IDS[pid]
+    return client.post(f"/cart/remove/{merchant}/{pid}", data=data, **kw)
+
 
 class TestCartAddReturnsAbsoluteItemCount:
     @pytest.mark.parametrize("merchant,pid_a,pid_b", MERCHANT_PRODUCTS)
@@ -150,10 +191,7 @@ class TestCartAddReturnsAbsoluteItemCount:
         """A single add must report an absolute item_count of exactly 1 — the
         number the badge will display. (Never 2 for one click.)"""
         client.get("/")
-        r = client.post(
-            f"/cart/add/{merchant}/{pid_a}",
-            headers={"Accept": "application/json"},
-        )
+        r = _add(client, merchant, pid_a, headers={"Accept": "application/json"})
         assert r.status_code == 200
         body = r.json()
         assert body["item_count"] == 1, f"single add must report 1, got {body['item_count']}"
@@ -164,16 +202,16 @@ class TestCartAddReturnsAbsoluteItemCount:
         must TRUTHFULLY report 2 units (the badge equals the cart's reality),
         not a drifted client-side guess."""
         client.get("/")
-        client.post(f"/cart/add/{merchant}/{pid_a}", headers={"Accept": "application/json"})
-        r = client.post(f"/cart/add/{merchant}/{pid_a}", headers={"Accept": "application/json"})
+        _add(client, merchant, pid_a, headers={"Accept": "application/json"})
+        r = _add(client, merchant, pid_a, headers={"Accept": "application/json"})
         assert r.json()["item_count"] == 2
 
     @pytest.mark.parametrize("merchant,pid_a,pid_b", MERCHANT_PRODUCTS)
     def test_two_distinct_products_report_two(self, client, merchant, pid_a, pid_b):
         """Two distinct products → item_count 2 (absolute, from the server)."""
         client.get("/")
-        client.post(f"/cart/add/{merchant}/{pid_a}", headers={"Accept": "application/json"})
-        r = client.post(f"/cart/add/{merchant}/{pid_b}", headers={"Accept": "application/json"})
+        _add(client, merchant, pid_a, headers={"Accept": "application/json"})
+        r = _add(client, merchant, pid_b, headers={"Accept": "application/json"})
         assert r.json()["item_count"] == 2
 
     @pytest.mark.parametrize("merchant,pid_a,pid_b", MERCHANT_PRODUCTS)
@@ -181,9 +219,9 @@ class TestCartAddReturnsAbsoluteItemCount:
         """Removing a line drops the absolute count back — the badge can never
         be left stale at the higher value."""
         client.get("/")
-        client.post(f"/cart/add/{merchant}/{pid_a}", headers={"Accept": "application/json"})
-        client.post(f"/cart/add/{merchant}/{pid_b}", headers={"Accept": "application/json"})
-        r = client.post(f"/cart/remove/{merchant}/{pid_a}", headers={"Accept": "application/json"})
+        _add(client, merchant, pid_a, headers={"Accept": "application/json"})
+        _add(client, merchant, pid_b, headers={"Accept": "application/json"})
+        r = _remove(client, merchant, pid_a, headers={"Accept": "application/json"})
         assert r.json()["item_count"] == 1
 
     def test_cross_merchant_basket_counts_all_units(self, client):
@@ -191,16 +229,9 @@ class TestCartAddReturnsAbsoluteItemCount:
         the badge reflects the true global total (project testing rule:
         exercise cross-merchant baskets, not one category)."""
         client.get("/")
-        client.post(
-            "/cart/add/athletic-co.myshopify.com/ath_001",
-            headers={"Accept": "application/json"},
-        )
-        client.post(
-            "/cart/add/audio-hub.myshopify.com/aud_001",
-            headers={"Accept": "application/json"},
-        )
-        r = client.post(
-            "/cart/add/coffee-bar.myshopify.com/cof_001",
-            headers={"Accept": "application/json"},
+        _add(client, "athletic-co.myshopify.com", "ath_001", headers={"Accept": "application/json"})
+        _add(client, "audio-hub.myshopify.com", "aud_001", headers={"Accept": "application/json"})
+        r = _add(
+            client, "coffee-bar.myshopify.com", "cof_001", headers={"Accept": "application/json"}
         )
         assert r.json()["item_count"] == 3
