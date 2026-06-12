@@ -253,6 +253,13 @@ def _build_anthropic_client_or_none():
     grid works for demos). Chat / agent features will return a polite
     "no key configured" message in that case.
     """
+    # Explicit offline override for deterministic browser (Playwright) e2e
+    # tests: forces the unconfigured stub regardless of any key present in the
+    # environment or .env (the settings backfill otherwise heals an empty key
+    # from .env, which would make the test server hit a live model). Gated by
+    # an env flag, so it has no effect on a normal run.
+    if os.getenv("CARTO_FORCE_OFFLINE") == "1":
+        return _UnconfiguredAnthropicClient()
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return _UnconfiguredAnthropicClient()

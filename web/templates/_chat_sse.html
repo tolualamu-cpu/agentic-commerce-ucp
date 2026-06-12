@@ -309,29 +309,47 @@
     scheduleScroll();
   }
 
+  // ── Typing indicator (the agent "is composing" wave) ────────────────
+  // A soft three-dot wave shown ONLY while we are waiting for the agent's
+  // reply. Lifecycle, strictly:
+  //   SHOW  — the instant the user submits (htmx:beforeRequest), or when a
+  //           page loads mid-run with the user turn already on screen but no
+  //           agent reply yet (PARTIAL dedup state).
+  //   HIDE  — the moment ANY real agent output lands (a `text` delta, product
+  //           `products`, or a cart `click` confirmation) or the run ends
+  //           (`done`/`bubble_end`/`error`).
+  // It is a singleton (id="chat-typing"), is never created by the swallowed
+  // `user` echo, by `cart_update`, or by a plain page load, and never coexists
+  // with the actual response — so it cannot persist past the reply or surface
+  // in any non-loading scenario.
   function showTyping() {
-    if (document.getElementById("chat-typing")) return;
+    if (document.getElementById("chat-typing")) return; // singleton
     const wrap = document.createElement("div");
     wrap.id = "chat-typing";
-    wrap.className = "text-left my-2";
-    wrap.innerHTML =
-      '<span class="inline-flex items-center gap-1 bg-white border border-slate-100 rounded-xl px-3 py-2">'
-      + '<span class="ac-typing-dot"></span>'
-      + '<span class="ac-typing-dot"></span>'
-      + '<span class="ac-typing-dot"></span>'
-      + '</span>';
+    wrap.className = "text-left ac-bubble-in";
+    wrap.setAttribute("aria-hidden", "true");
+    const bubble = document.createElement("div");
+    bubble.className =
+      "inline-block bg-white border border-slate-200 px-4 py-3 " +
+      "rounded-2xl rounded-tl-sm shadow-sm";
+    bubble.innerHTML =
+      '<span class="ac-typing-dot"></span>' +
+      '<span class="ac-typing-dot"></span>' +
+      '<span class="ac-typing-dot"></span>';
+    wrap.appendChild(bubble);
     log.appendChild(wrap);
-    scheduleScroll();
+    scheduleScroll({ force: true });
   }
-
   function hideTyping() {
     const el = document.getElementById("chat-typing");
     if (el) el.remove();
   }
-
   function bumpTypingToBottom() {
+    // Keep the indicator the LAST child while intermediate (non-reply) events
+    // land during loading — e.g. a tool_start line — so the wave always sits
+    // below the latest content instead of stranded mid-log.
     const el = document.getElementById("chat-typing");
-    if (el) { log.appendChild(el); scheduleScroll(); }
+    if (el) log.appendChild(el);
   }
 
   // On page load: if history is non-empty, jump straight to the bottom
@@ -344,6 +362,12 @@
     window.scrollTo(0, document.documentElement.scrollHeight);
     _attachCardHandlers(log);
   }
+  // PARTIAL load: the page arrived (e.g. via Explore navigation) with the
+  // user's turn already rendered but NO agent reply yet — the orchestrator is
+  // still running and will stream the reply over SSE. Show the typing wave so
+  // the loading state is conveyed; the dispatcher removes it when the reply
+  // lands. (The FULL case sets _skipUntilDone instead and shows no wave, since
+  // that exchange already completed.)
   if (_pendingUserDedup) showTyping();
 
   // ── SSE event dispatcher ────────────────────────────────────────
@@ -414,6 +438,9 @@
       if (status) status.textContent = "thinking…";
       return;
     } else if (t === "text") {
+      // The agent's reply has started — drop the typing wave immediately
+      // (synchronously, before the gated bubble append) so it never overlaps
+      // the response.
       hideTyping();
       const delta = d.delta || "";
       // Defer behind any in-flight product-card fetch so cards render ABOVE
@@ -428,6 +455,7 @@
       });
     } else if (t === "tool_start") {
       appendTool(d.name || "tool");
+      // Still loading — keep the wave, but below the tool line.
       bumpTypingToBottom();
     } else if (t === "done") {
       hideTyping();
@@ -449,6 +477,7 @@
       // Fired after each gate Q&A response to keep intermediate replies and
       // the final purchase confirmation in separate chat bubbles. Gated for
       // the same ordering reason as `done`.
+      hideTyping();
       _afterCards(() => { currentAgentBubble = null; });
     } else if (t === "error") {
       hideTyping();
@@ -463,6 +492,9 @@
       hideTyping();
       const items = d.products || [];
       if (!items.length) return;
+      // Cards are real agent output — drop the typing wave before reserving the
+      // placeholder so the indicator never sits among the results.
+      hideTyping();
       // Close any open streaming text bubble before inserting cards.
       currentAgentBubble = null;
       // Insert a placeholder synchronously — this reserves a position in the
@@ -517,6 +549,9 @@
       });
       _afterCards(() => fetchDone);
     } else if (t === "click") {
+      // A cart-action confirmation is real output — clear any loading wave.
+      // (When a click arrives standalone from Explore there is no wave, so
+      // this is a harmless no-op.)
       hideTyping();
       // Render a styled cart-action confirmation in the chat log instead of
       // just a toast. Uses the structured fields added to the click event.
