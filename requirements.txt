@@ -1,7 +1,7 @@
 anthropic>=0.105.2
 stripe>=10.0.0
 pydantic>=2.13.4
-email-validator>=2.0
+email-validator>=2.3.0
 httpx>=0.28.1
 cryptography>=48.0.0
 rich>=15.0.0
